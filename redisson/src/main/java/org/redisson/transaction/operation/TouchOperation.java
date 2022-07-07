@@ -19,6 +19,8 @@ import org.redisson.RedissonKeys;
 import org.redisson.RedissonLock;
 import org.redisson.api.RKeys;
 import org.redisson.command.CommandAsyncExecutor;
+import org.redisson.transaction.RedissonTransactionalLock;
+import org.redisson.transaction.RedissonTransactionalWriteLock;
 
 /**
  * 
@@ -27,29 +29,49 @@ import org.redisson.command.CommandAsyncExecutor;
  */
 public class TouchOperation extends TransactionalOperation {
 
+    private String writeLockName;
     private String lockName;
+    private String transactionId;
     
     public TouchOperation(String name) {
-        this(name, null, 0);
+        this(name, null, 0, null);
     }
     
-    public TouchOperation(String name, String lockName, long threadId) {
+    public TouchOperation(String name, String lockName, long threadId, String transactionId) {
         super(name, null, threadId);
         this.lockName = lockName;
+        this.transactionId = transactionId;
+    }
+
+    public TouchOperation(String name, String lockName, String writeLockName, long threadId, String transactionId) {
+        this(name, lockName, threadId, transactionId);
+        this.writeLockName = writeLockName;
     }
 
     @Override
     public void commit(CommandAsyncExecutor commandExecutor) {
         RKeys keys = new RedissonKeys(commandExecutor);
         keys.touchAsync(getName());
-        RedissonLock lock = new RedissonLock(commandExecutor, lockName);
-        lock.unlockAsync(getThreadId());
+        if (lockName != null) {
+            RedissonLock lock = new RedissonTransactionalLock(commandExecutor, lockName, transactionId);
+            lock.unlockAsync(getThreadId());
+        }
+        if (writeLockName != null) {
+            RedissonLock lock = new RedissonTransactionalWriteLock(commandExecutor, writeLockName, transactionId);
+            lock.unlockAsync(getThreadId());
+        }
     }
 
     @Override
     public void rollback(CommandAsyncExecutor commandExecutor) {
-        RedissonLock lock = new RedissonLock(commandExecutor, lockName);
-        lock.unlockAsync(getThreadId());
+        if (lockName != null) {
+            RedissonLock lock = new RedissonTransactionalLock(commandExecutor, lockName, transactionId);
+            lock.unlockAsync(getThreadId());
+        }
+        if (writeLockName != null) {
+            RedissonLock lock = new RedissonTransactionalWriteLock(commandExecutor, writeLockName, transactionId);
+            lock.unlockAsync(getThreadId());
+        }
     }
     
     public String getLockName() {

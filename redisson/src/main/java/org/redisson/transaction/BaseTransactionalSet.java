@@ -25,16 +25,14 @@ import org.redisson.command.CommandAsyncExecutor;
 import org.redisson.misc.CompletableFutureWrapper;
 import org.redisson.misc.Hash;
 import org.redisson.misc.HashValue;
-import org.redisson.transaction.operation.DeleteOperation;
-import org.redisson.transaction.operation.TouchOperation;
-import org.redisson.transaction.operation.TransactionalOperation;
-import org.redisson.transaction.operation.UnlinkOperation;
+import org.redisson.transaction.operation.*;
 import org.redisson.transaction.operation.set.MoveOperation;
 
 import java.util.*;
 import java.util.Map.Entry;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /**
@@ -48,16 +46,18 @@ public abstract class BaseTransactionalSet<V> extends BaseTransactionalObject {
     static final Object NULL = new Object();
     
     private final long timeout;
-    final Map<HashValue, Object> state = new HashMap<HashValue, Object>();
+    final Map<HashValue, Object> state = new HashMap<>();
     final List<TransactionalOperation> operations;
     final RCollectionAsync<V> set;
     final RObject object;
     final String name;
-    final CommandAsyncExecutor commandExecutor;
     Boolean deleted;
-    
-    public BaseTransactionalSet(CommandAsyncExecutor commandExecutor, long timeout, List<TransactionalOperation> operations, RCollectionAsync<V> set) {
-        this.commandExecutor = commandExecutor;
+
+    boolean hasExpiration;
+
+    public BaseTransactionalSet(CommandAsyncExecutor commandExecutor, long timeout, List<TransactionalOperation> operations,
+                                RCollectionAsync<V> set, String transactionId) {
+        super(transactionId, getLockName(((RObject) set).getName()), commandExecutor);
         this.timeout = timeout;
         this.operations = operations;
         this.set = set;
@@ -81,52 +81,52 @@ public abstract class BaseTransactionalSet<V> extends BaseTransactionalObject {
         
         return set.isExistsAsync();
     }
-    
-    public RFuture<Boolean> unlinkAsync(CommandAsyncExecutor commandExecutor) {
-        return deleteAsync(commandExecutor, new UnlinkOperation(name));
-    }
-    
-    public RFuture<Boolean> touchAsync(CommandAsyncExecutor commandExecutor) {
-        if (deleted != null && deleted) {
-            operations.add(new TouchOperation(name));
-            return new CompletableFutureWrapper<>(false);
-        }
 
-        CompletionStage<Boolean> f = set.isExistsAsync().thenApply(exists -> {
-            operations.add(new TouchOperation(name));
-            if (!exists) {
-                for (Object value : state.values()) {
-                    if (value != NULL) {
-                        exists = true;
-                        break;
-                    }
-                }
+    public RFuture<Boolean> unlinkAsync() {
+        long currentThreadId = Thread.currentThread().getId();
+        return deleteAsync(new UnlinkOperation(name, null, lockName, currentThreadId, transactionId));
+    }
+
+    public RFuture<Boolean> touchAsync() {
+        long currentThreadId = Thread.currentThread().getId();
+        return executeLocked(timeout, () -> {
+            if (deleted != null && deleted) {
+                operations.add(new TouchOperation(name, null, lockName, currentThreadId, transactionId));
+                return new CompletableFutureWrapper<>(false);
             }
-            return exists;
-        });
-        return new CompletableFutureWrapper<>(f);
+
+            return set.isExistsAsync().thenApply(exists -> {
+                operations.add(new TouchOperation(name, null, lockName, currentThreadId, transactionId));
+                if (!exists) {
+                    return isExists();
+                }
+                return true;
+            });
+        }, getWriteLock());
     }
 
-    public RFuture<Boolean> deleteAsync(CommandAsyncExecutor commandExecutor) {
-        return deleteAsync(commandExecutor, new DeleteOperation(name));
+    public RFuture<Boolean> deleteAsync() {
+        long currentThreadId = Thread.currentThread().getId();
+        return deleteAsync(new DeleteOperation(name, null, lockName, transactionId, currentThreadId));
     }
 
-    protected RFuture<Boolean> deleteAsync(CommandAsyncExecutor commandExecutor, TransactionalOperation operation) {
-        if (deleted != null) {
-            operations.add(operation);
-            CompletableFuture<Boolean> result = new CompletableFuture<>();
-            result.complete(!deleted);
-            deleted = true;
-            return new CompletableFutureWrapper<>(result);
-        }
+    protected RFuture<Boolean> deleteAsync(TransactionalOperation operation) {
+        return executeLocked(timeout, () -> {
+            if (deleted != null) {
+                operations.add(operation);
+                CompletableFuture<Boolean> result = new CompletableFuture<>();
+                result.complete(!deleted);
+                deleted = true;
+                return result;
+            }
 
-        CompletionStage<Boolean> f = set.isExistsAsync().thenApply(res -> {
-            operations.add(operation);
-            state.replaceAll((k, v) -> NULL);
-            deleted = true;
-            return res;
-        });
-        return new CompletableFutureWrapper<>(f);
+            return set.isExistsAsync().thenApply(res -> {
+                operations.add(operation);
+                state.replaceAll((k, v) -> NULL);
+                deleted = true;
+                return res;
+            });
+        }, getWriteLock());
     }
     
     public RFuture<Boolean> containsAsync(Object value) {
@@ -240,7 +240,7 @@ public abstract class BaseTransactionalSet<V> extends BaseTransactionalObject {
         List<RLock> locks = Arrays.asList(destinationLock, lock);
 
         long threadId = Thread.currentThread().getId();
-        return executeLocked(() -> {
+        return executeLocked(timeout, () -> {
             HashValue keyHash = toHash(value);
             Object currentValue = state.get(keyHash);
             if (currentValue != null) {
@@ -264,7 +264,10 @@ public abstract class BaseTransactionalSet<V> extends BaseTransactionalObject {
 
     protected abstract MoveOperation createMoveOperation(String destination, V value, long threadId);
 
-    protected abstract RLock getLock(RCollectionAsync<V> set, V value);
+    private RLock getLock(RCollectionAsync<V> set, V value) {
+        String lockName = ((RedissonObject) set).getLockByValue(value, "lock");
+        return new RedissonTransactionalLock(commandExecutor, lockName, transactionId);
+    }
     
     public RFuture<Boolean> removeAsync(Object value) {
         long threadId = Thread.currentThread().getId();
@@ -418,10 +421,13 @@ public abstract class BaseTransactionalSet<V> extends BaseTransactionalObject {
             oldValueBuf.readableBytes();
         }
     }
-    
+
     protected <R> RFuture<R> executeLocked(Object value, Supplier<CompletionStage<R>> runnable) {
         RLock lock = getLock(set, (V) value);
-        return executeLocked(timeout, runnable, lock);
+        long threadId = Thread.currentThread().getId();
+        return executeLocked(threadId, timeout, () -> {
+            return executeLocked(threadId, timeout, runnable, lock);
+        }, getReadLock());
     }
 
     protected <R> RFuture<R> executeLocked(Supplier<CompletionStage<R>> runnable, Collection<?> values) {
@@ -431,6 +437,62 @@ public abstract class BaseTransactionalSet<V> extends BaseTransactionalObject {
             locks.add(lock);
         }
         return executeLocked(timeout, runnable, locks);
+    }
+
+    public RFuture<Boolean> clearExpireAsync() {
+        long currentThreadId = Thread.currentThread().getId();
+        return executeLocked(timeout, () -> {
+            if (hasExpiration) {
+                operations.add(new ClearExpireOperation(name, null, lockName, currentThreadId, transactionId));
+                hasExpiration = false;
+                return CompletableFuture.completedFuture(true);
+            }
+
+            return set.remainTimeToLiveAsync().thenApply(res -> {
+                operations.add(new ClearExpireOperation(name, null, lockName, currentThreadId, transactionId));
+                hasExpiration = false;
+                return res > 0;
+            });
+        }, getWriteLock());
+    }
+
+    private boolean isExists() {
+        boolean notExists = state.values().stream().noneMatch(v -> v != NULL);
+        return !notExists;
+    }
+
+    public RFuture<Boolean> expireAsync(long timeToLive, TimeUnit timeUnit, String param, String... keys) {
+        long currentThreadId = Thread.currentThread().getId();
+        return executeLocked(timeout, () -> {
+            if (isExists()) {
+                operations.add(new ExpireOperation(name, null, lockName, currentThreadId, transactionId, timeToLive, timeUnit, param, keys));
+                hasExpiration = true;
+                return CompletableFuture.completedFuture(true);
+            }
+
+            return isExistsAsync().thenApply(res -> {
+                operations.add(new ExpireOperation(name, null, lockName, currentThreadId, transactionId, timeToLive, timeUnit, param, keys));
+                hasExpiration = res;
+                return res;
+            });
+        }, getWriteLock());
+    }
+
+    public RFuture<Boolean> expireAtAsync(long timestamp, String param, String... keys) {
+        long currentThreadId = Thread.currentThread().getId();
+        return executeLocked(timeout, () -> {
+            if (isExists()) {
+                operations.add(new ExpireAtOperation(name, null, lockName, currentThreadId, transactionId, timestamp, param, keys));
+                hasExpiration = true;
+                return CompletableFuture.completedFuture(true);
+            }
+
+            return isExistsAsync().thenApply(res -> {
+                operations.add(new ExpireAtOperation(name, null, lockName, currentThreadId, transactionId, timestamp, param, keys));
+                hasExpiration = res;
+                return res;
+            });
+        }, getWriteLock());
     }
 
 }

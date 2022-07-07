@@ -34,7 +34,6 @@ import org.redisson.executor.params.*;
 import org.redisson.misc.Hash;
 import org.redisson.misc.HashValue;
 import org.redisson.misc.Injector;
-import org.redisson.remote.RequestId;
 import org.redisson.remote.ResponseEntry;
 
 import java.io.ByteArrayInputStream;
@@ -172,7 +171,7 @@ public class TasksRunnerService implements RemoteExecutorService {
         scheduledRemoteService.setSchedulerQueueName(schedulerQueueName);
         scheduledRemoteService.setSchedulerChannelName(schedulerChannelName);
         scheduledRemoteService.setTasksName(tasksName);
-        scheduledRemoteService.setRequestId(new RequestId(requestId));
+        scheduledRemoteService.setRequestId(requestId);
         scheduledRemoteService.setTasksExpirationTimeName(tasksExpirationTimeName);
         scheduledRemoteService.setTasksRetryIntervalName(tasksRetryIntervalName);
         RemoteExecutorServiceAsync asyncScheduledServiceAtFixed = scheduledRemoteService.get(RemoteExecutorServiceAsync.class, RemoteInvocationOptions.defaults().noAck().noResult());
@@ -330,7 +329,7 @@ public class TasksRunnerService implements RemoteExecutorService {
 
     public void executeRunnable(TaskParameters params, boolean removeTask) {
         try {
-            if (params.getRequestId() != null && params.getRequestId().startsWith("00")) {
+            if (params.getRequestId() != null && !(params instanceof ScheduledParameters)) {
                 RFuture<Long> future = renewRetryTime(params.getRequestId());
                 try {
                     future.toCompletableFuture().get();

@@ -109,7 +109,27 @@ public class LoadBalancerManager {
 
         return unfreeze(entry, freezeReason);
     }
-    
+
+    public CompletableFuture<Boolean> unfreezeAsync(RedisURI address, FreezeReason freezeReason) {
+        ClientConnectionsEntry entry = getEntry(address);
+        if (entry == null) {
+            log.error("Can't find {} in slaves! Available slaves: {}", address, client2Entry.keySet());
+            return CompletableFuture.completedFuture(false);
+        }
+
+        return unfreezeAsync(entry, freezeReason);
+    }
+
+    public CompletableFuture<Boolean> unfreezeAsync(InetSocketAddress address, FreezeReason freezeReason) {
+        ClientConnectionsEntry entry = getEntry(address);
+        if (entry == null) {
+            log.error("Can't find {} in slaves! Available slaves: {}", address, client2Entry.keySet());
+            return CompletableFuture.completedFuture(false);
+        }
+
+        return unfreezeAsync(entry, freezeReason);
+    }
+
     public boolean unfreeze(InetSocketAddress address, FreezeReason freezeReason) {
         ClientConnectionsEntry entry = getEntry(address);
         if (entry == null) {
@@ -158,6 +178,40 @@ public class LoadBalancerManager {
         return false;
     }
 
+    public CompletableFuture<Boolean> unfreezeAsync(ClientConnectionsEntry entry, FreezeReason freezeReason) {
+        synchronized (entry) {
+            if (!entry.isFreezed()) {
+                return CompletableFuture.completedFuture(false);
+            }
+
+            if (freezeReason != FreezeReason.RECONNECT
+                    || entry.getFreezeReason() == FreezeReason.RECONNECT) {
+                if (!entry.isInitialized()) {
+                    entry.setInitialized(true);
+
+                    entry.resetFirstFail();
+
+                    List<CompletableFuture<Void>> futures = new ArrayList<>(2);
+                    futures.add(slaveConnectionPool.initConnections(entry));
+                    futures.add(pubSubConnectionPool.initConnections(entry));
+
+                    CompletableFuture<Void> future = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+                    return future.whenComplete((r, e) -> {
+                        if (e != null) {
+                            log.error("Unable to unfreeze entry: " + entry, e);
+                            entry.setInitialized(false);
+                            return;
+                        }
+
+                        log.debug("Unfreezed entry: {}", entry);
+                        entry.setFreezeReason(null);
+                    }).thenApply(e -> true);
+                }
+            }
+        }
+        return CompletableFuture.completedFuture(false);
+    }
+
     public ClientConnectionsEntry freeze(RedisURI address, FreezeReason freezeReason) {
         ClientConnectionsEntry connectionEntry = getEntry(address);
         return freeze(connectionEntry, freezeReason);
@@ -203,11 +257,6 @@ public class LoadBalancerManager {
         return getEntry(addr) != null;
     }
 
-    public boolean isUnfreezed(RedisURI addr) {
-        ClientConnectionsEntry entry = getEntry(addr);
-        return !entry.isFreezed();
-    }
-    
     public boolean contains(RedisURI addr) {
         return getEntry(addr) != null;
     }

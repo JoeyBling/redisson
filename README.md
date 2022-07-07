@@ -16,6 +16,7 @@ JDK compatibility:  1.8 - 18, Android
 * Redis with Master with Slave only  
 * Redis single (including support of [Azure Redis Cache](https://azure.microsoft.com/en-us/services/cache/) and [Google Cloud Memorystore for Redis](https://cloud.google.com/memorystore/docs/redis/))  
 * Thread-safe implementation  
+* [JSON datatype](https://github.com/redisson/redisson/wiki/6.-distributed-objects/#615-json-object-holder)
 * [Reactive Streams](https://github.com/redisson/redisson/wiki/3.-operations-execution#32-reactive-way) API  
 * [RxJava3](https://github.com/redisson/redisson/wiki/3.-operations-execution#32-reactive-way) API  
 * [Asynchronous](https://github.com/redisson/redisson/wiki/3.-operations-execution#31-async-way) API  
@@ -104,14 +105,14 @@ Used by
     <dependency>
        <groupId>org.redisson</groupId>
        <artifactId>redisson</artifactId>
-       <version>3.17.2</version>
+       <version>3.17.4</version>
     </dependency>  
 
 #### Gradle
-    compile 'org.redisson:redisson:3.17.2'  
+    compile 'org.redisson:redisson:3.17.4'  
 
 #### SBT
-    libraryDependencies += "org.redisson" % "redisson" % "3.17.2"
+    libraryDependencies += "org.redisson" % "redisson" % "3.17.4"
 
 #### Java
 
@@ -169,8 +170,8 @@ Try __[Redisson PRO](https://redisson.pro)__ with **ultra-fast performance** and
 
 ## Downloads
    
-[Redisson 3.17.2](https://repository.sonatype.org/service/local/artifact/maven/redirect?r=central-proxy&g=org.redisson&a=redisson&v=3.17.2&e=jar),
-[Redisson node 3.17.2](https://repository.sonatype.org/service/local/artifact/maven/redirect?r=central-proxy&g=org.redisson&a=redisson-all&v=3.17.2&e=jar)  
+[Redisson 3.17.4](https://repository.sonatype.org/service/local/artifact/maven/redirect?r=central-proxy&g=org.redisson&a=redisson&v=3.17.4&e=jar),
+[Redisson node 3.17.4](https://repository.sonatype.org/service/local/artifact/maven/redirect?r=central-proxy&g=org.redisson&a=redisson-all&v=3.17.4&e=jar)  
 
 ## FAQs
 

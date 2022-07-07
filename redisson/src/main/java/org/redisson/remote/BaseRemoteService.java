@@ -16,6 +16,7 @@
 package org.redisson.remote;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.util.CharsetUtil;
 import io.netty.util.Timeout;
@@ -77,15 +78,10 @@ public abstract class BaseRemoteService {
         return "{remote_response}:" + executorId;
     }
     
-    protected String getAckName(RequestId requestId) {
-        return "{" + name + ":remote" + "}:" + requestId + ":ack";
-    }
-    
     protected String getAckName(String requestId) {
         return "{" + name + ":remote" + "}:" + requestId + ":ack";
     }
-
-
+    
     public String getRequestQueueName(Class<?> remoteInterface) {
         return requestQueueNameCache.computeIfAbsent(remoteInterface, k -> "{" + name + ":" + k.getName() + "}");
     }
@@ -143,10 +139,10 @@ public abstract class BaseRemoteService {
     }
 
     protected <K, V> RMap<K, V> getMap(String name) {
-        return new RedissonMap<>(new CompositeCodec(StringCodec.INSTANCE, codec, codec), commandExecutor, name, null, null, null);
+        return new RedissonMap<>(new CompositeCodec(StringCodec.INSTANCE, codec, codec), commandExecutor, name);
     }
     
-    protected <T> void scheduleCheck(String mapName, RequestId requestId, CompletableFuture<T> cancelRequest) {
+    protected <T> void scheduleCheck(String mapName, String requestId, CompletableFuture<T> cancelRequest) {
         commandExecutor.getConnectionManager().newTimeout(new TimerTask() {
             @Override
             public void run(Timeout timeout) throws Exception {
@@ -155,7 +151,7 @@ public abstract class BaseRemoteService {
                 }
 
                 RMap<String, T> canceledRequests = getMap(mapName);
-                RFuture<T> future = canceledRequests.removeAsync(requestId.toString());
+                RFuture<T> future = canceledRequests.removeAsync(requestId);
                 future.whenComplete((request, ex) -> {
                     if (cancelRequest.isDone()) {
                         return;
@@ -175,16 +171,16 @@ public abstract class BaseRemoteService {
         }, 3000, TimeUnit.MILLISECONDS);
     }
 
-    protected RequestId generateRequestId() {
+    protected String generateRequestId(Object[] args) {
         byte[] id = new byte[16];
         ThreadLocalRandom.current().nextBytes(id);
-        return new RequestId(id);
+        return ByteBufUtil.hexDump(id);
     }
 
     protected abstract CompletableFuture<Boolean> addAsync(String requestQueueName, RemoteServiceRequest request,
                                                            RemotePromise<Object> result);
 
-    protected abstract CompletableFuture<Boolean> removeAsync(String requestQueueName, RequestId taskId);
+    protected abstract CompletableFuture<Boolean> removeAsync(String requestQueueName, String taskId);
 
     protected long[] getMethodSignature(Method method) {
         long[] result = methodSignaturesCache.get(method);

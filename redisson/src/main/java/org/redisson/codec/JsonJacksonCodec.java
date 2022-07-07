@@ -136,7 +136,16 @@ public class JsonJacksonCodec extends BaseCodec {
     }
 
     public JsonJacksonCodec(ObjectMapper mapObjectMapper) {
-        this.mapObjectMapper = mapObjectMapper.copy();
+        this(mapObjectMapper, true);
+        warmup();
+    }
+
+    public JsonJacksonCodec(ObjectMapper mapObjectMapper, boolean copy) {
+        if (copy) {
+            this.mapObjectMapper = mapObjectMapper.copy();
+        } else {
+            this.mapObjectMapper = mapObjectMapper;
+        }
         init(this.mapObjectMapper);
         initTypeInclusion(this.mapObjectMapper);
         warmup();
@@ -152,7 +161,7 @@ public class JsonJacksonCodec extends BaseCodec {
                     }
                     // fall through
                 case OBJECT_AND_NON_CONCRETE:
-                    return (t.getRawClass() == Object.class) || !t.isConcrete();
+                    return t.getRawClass() == Object.class || !t.isConcrete();
                 case NON_FINAL:
                     while (t.isArrayType()) {
                         t = t.getContentType();

@@ -22,13 +22,11 @@ import org.redisson.api.RLock;
 import org.redisson.client.codec.Codec;
 import org.redisson.command.CommandAsyncExecutor;
 import org.redisson.misc.CompletableFutureWrapper;
-import org.redisson.transaction.operation.DeleteOperation;
-import org.redisson.transaction.operation.TouchOperation;
-import org.redisson.transaction.operation.TransactionalOperation;
-import org.redisson.transaction.operation.UnlinkOperation;
+import org.redisson.transaction.operation.*;
 import org.redisson.transaction.operation.bucket.*;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
@@ -49,6 +47,7 @@ public class RedissonTransactionalBucket<V> extends RedissonBucket<V> {
     private final AtomicBoolean executed;
     private final List<TransactionalOperation> operations;
     private Object state;
+    private boolean hasExpiration;
     private final String transactionId;
     
     public RedissonTransactionalBucket(CommandAsyncExecutor commandExecutor, long timeout, String name, List<TransactionalOperation> operations, AtomicBoolean executed, String transactionId) {
@@ -68,18 +67,60 @@ public class RedissonTransactionalBucket<V> extends RedissonBucket<V> {
     }
     
     @Override
-    public RFuture<Boolean> expireAsync(long timeToLive, TimeUnit timeUnit, String param, String... keys) {
-        throw new UnsupportedOperationException("expire method is not supported in transaction");
+    protected RFuture<Boolean> expireAsync(long timeToLive, TimeUnit timeUnit, String param, String... keys) {
+        checkState();
+        long currentThreadId = Thread.currentThread().getId();
+        return executeLocked(() -> {
+            if (state != null) {
+                operations.add(new ExpireOperation(getRawName(), getLockName(), currentThreadId, transactionId, timeToLive, timeUnit, param, keys));
+                hasExpiration = true;
+                return CompletableFuture.completedFuture(state != NULL);
+            }
+
+            return isExistsAsync().thenApply(res -> {
+                operations.add(new ExpireOperation(getRawName(), getLockName(), currentThreadId, transactionId, timeToLive, timeUnit, param, keys));
+                hasExpiration = res;
+                return res;
+            });
+        });
     }
     
     @Override
     protected RFuture<Boolean> expireAtAsync(long timestamp, String param, String... keys) {
-        throw new UnsupportedOperationException("expire method is not supported in transaction");
+        checkState();
+        long currentThreadId = Thread.currentThread().getId();
+        return executeLocked(() -> {
+            if (state != null) {
+                operations.add(new ExpireAtOperation(getRawName(), getLockName(), currentThreadId, transactionId, timestamp, param, keys));
+                hasExpiration = true;
+                return CompletableFuture.completedFuture(state != NULL);
+            }
+
+            return isExistsAsync().thenApply(res -> {
+                operations.add(new ExpireAtOperation(getRawName(), getLockName(), currentThreadId, transactionId, timestamp, param, keys));
+                hasExpiration = res;
+                return res;
+            });
+        });
     }
 
     @Override
     public RFuture<Boolean> clearExpireAsync() {
-        throw new UnsupportedOperationException("clearExpire method is not supported in transaction");
+        checkState();
+        long currentThreadId = Thread.currentThread().getId();
+        return executeLocked(() -> {
+            if (hasExpiration) {
+                operations.add(new ClearExpireOperation(getRawName(), getLockName(), currentThreadId, transactionId));
+                hasExpiration = false;
+                return CompletableFuture.completedFuture(true);
+            }
+
+            return remainTimeToLiveAsync().thenApply(res -> {
+                operations.add(new ClearExpireOperation(getRawName(), getLockName(), currentThreadId, transactionId));
+                hasExpiration = false;
+                return res > 0;
+            });
+        });
     }
     
     @Override
@@ -113,11 +154,7 @@ public class RedissonTransactionalBucket<V> extends RedissonBucket<V> {
     public RFuture<Boolean> isExistsAsync() {
         checkState();
         if (state != null) {
-            if (state == NULL) {
-                return new CompletableFutureWrapper<>((Boolean) null);
-            } else {
-                return new CompletableFutureWrapper<>(true);
-            }
+            return new CompletableFutureWrapper<>(state != NULL);
         }
         
         return super.isExistsAsync();
@@ -129,12 +166,12 @@ public class RedissonTransactionalBucket<V> extends RedissonBucket<V> {
         long currentThreadId = Thread.currentThread().getId();
         return executeLocked(() -> {
             if (state != null) {
-                operations.add(new TouchOperation(getRawName(), getLockName(), currentThreadId));
+                operations.add(new TouchOperation(getRawName(), getLockName(), currentThreadId, transactionId));
                 return CompletableFuture.completedFuture(state != NULL);
             }
 
             return isExistsAsync().thenApply(res -> {
-                operations.add(new TouchOperation(getRawName(), getLockName(), currentThreadId));
+                operations.add(new TouchOperation(getRawName(), getLockName(), currentThreadId, transactionId));
                 return res;
             });
         });
@@ -146,7 +183,7 @@ public class RedissonTransactionalBucket<V> extends RedissonBucket<V> {
         long currentThreadId = Thread.currentThread().getId();
         return executeLocked(() -> {
             if (state != null) {
-                operations.add(new UnlinkOperation(getRawName(), getLockName(), currentThreadId));
+                operations.add(new UnlinkOperation(getRawName(), getLockName(), currentThreadId, transactionId));
                 if (state == NULL) {
                     return CompletableFuture.completedFuture(false);
                 } else {
@@ -156,7 +193,7 @@ public class RedissonTransactionalBucket<V> extends RedissonBucket<V> {
             }
 
             return isExistsAsync().thenApply(res -> {
-                operations.add(new UnlinkOperation(getRawName(), getLockName(), currentThreadId));
+                operations.add(new UnlinkOperation(getRawName(), getLockName(), currentThreadId, transactionId));
                 state = NULL;
                 return res;
             });
@@ -210,11 +247,7 @@ public class RedissonTransactionalBucket<V> extends RedissonBucket<V> {
                 operations.add(new BucketCompareAndSetOperation<V>(getRawName(), getLockName(), getCodec(), expect, update, transactionId, currentThreadId));
                 if ((state == NULL && expect == null)
                         || isEquals(state, expect)) {
-                    if (update == null) {
-                        state = NULL;
-                    } else {
-                        state = update;
-                    }
+                    state = Optional.ofNullable((Object) update).orElse(NULL);
                     return CompletableFuture.completedFuture(true);
                 }
                 return CompletableFuture.completedFuture(false);
@@ -224,11 +257,7 @@ public class RedissonTransactionalBucket<V> extends RedissonBucket<V> {
                 operations.add(new BucketCompareAndSetOperation<V>(getRawName(), getLockName(), getCodec(), expect, update, transactionId, currentThreadId));
                 if ((res == null && expect == null)
                         || isEquals(res, expect)) {
-                    if (update == null) {
-                        state = NULL;
-                    } else {
-                        state = update;
-                    }
+                    state = Optional.ofNullable((Object) update).orElse(NULL);
                     return true;
                 }
                 return false;
@@ -251,27 +280,14 @@ public class RedissonTransactionalBucket<V> extends RedissonBucket<V> {
         checkState();
         return executeLocked(() -> {
             if (state != null) {
-                Object prevValue;
-                if (state == NULL) {
-                    prevValue = null;
-                } else {
-                    prevValue = state;
-                }
+                Object prevValue = Optional.of(state).filter(s -> s != NULL).orElse(null);
                 operations.add(operation);
-                if (newValue == null) {
-                    state = NULL;
-                } else {
-                    state = newValue;
-                }
+                state = Optional.ofNullable((Object) newValue).orElse(NULL);
                 return CompletableFuture.completedFuture((V) prevValue);
             }
 
             return getAsync().thenApply(res -> {
-                if (newValue == null) {
-                    state = NULL;
-                } else {
-                    state = newValue;
-                }
+                state = Optional.ofNullable((Object) newValue).orElse(NULL);
                 operations.add(operation);
                 return res;
             });
@@ -285,12 +301,7 @@ public class RedissonTransactionalBucket<V> extends RedissonBucket<V> {
         long currentThreadId = Thread.currentThread().getId();
         return executeLocked(() -> {
             if (state != null) {
-                Object prevValue;
-                if (state == NULL) {
-                    prevValue = null;
-                } else {
-                    prevValue = state;
-                }
+                Object prevValue = Optional.of(state).filter(s -> s != NULL).orElse(null);
                 operations.add(new BucketGetAndDeleteOperation<V>(getRawName(), getLockName(), getCodec(), transactionId, currentThreadId));
                 state = NULL;
                 return CompletableFuture.completedFuture((V) prevValue);
@@ -310,15 +321,12 @@ public class RedissonTransactionalBucket<V> extends RedissonBucket<V> {
         return setAsync(newValue, new BucketSetOperation<V>(getRawName(), getLockName(), getCodec(), newValue, transactionId, currentThreadId));
     }
 
-    private RFuture<Void> setAsync(V newValue, TransactionalOperation operation) {
+    private RFuture<Void> setAsync(V newValue, BucketSetOperation operation) {
         checkState();
         return executeLocked(() -> {
+            hasExpiration = operation.getTimeUnit() != null;
             operations.add(operation);
-            if (newValue == null) {
-                state = NULL;
-            } else {
-                state = newValue;
-            }
+            state = Optional.ofNullable((Object) newValue).orElse(NULL);
             return CompletableFuture.completedFuture(null);
         });
     }
@@ -341,17 +349,14 @@ public class RedissonTransactionalBucket<V> extends RedissonBucket<V> {
         return trySet(value, new BucketTrySetOperation<V>(getRawName(), getLockName(), getCodec(), value, timeToLive, timeUnit, transactionId, currentThreadId));
     }
 
-    private RFuture<Boolean> trySet(V newValue, TransactionalOperation operation) {
+    private RFuture<Boolean> trySet(V newValue, BucketTrySetOperation operation) {
         checkState();
         return executeLocked(() -> {
             if (state != null) {
                 operations.add(operation);
                 if (state == NULL) {
-                    if (newValue == null) {
-                        state = NULL;
-                    } else {
-                        state = newValue;
-                    }
+                    state = Optional.ofNullable((Object) newValue).orElse(NULL);
+                    hasExpiration = operation.getTimeUnit() != null;
                     return CompletableFuture.completedFuture(true);
                 } else {
                     return CompletableFuture.completedFuture(false);
@@ -361,11 +366,8 @@ public class RedissonTransactionalBucket<V> extends RedissonBucket<V> {
             return getAsync().thenApply(res -> {
                 operations.add(operation);
                 if (res == null) {
-                    if (newValue == null) {
-                        state = NULL;
-                    } else {
-                        state = newValue;
-                    }
+                    hasExpiration = operation.getTimeUnit() != null;
+                    state = Optional.ofNullable((Object) newValue).orElse(NULL);
                     return true;
                 }
                 return false;

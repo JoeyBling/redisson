@@ -461,6 +461,7 @@ public interface RedisCommands {
     RedisStrictCommand<Long> HLEN_LONG = new RedisStrictCommand<Long>("HLEN");
     RedisCommand<Set<Object>> HKEYS = new RedisCommand<Set<Object>>("HKEYS",
                         new MapKeyDecoder(new ObjectSetReplayDecoder()));
+    RedisCommand<List<Object>> HMGET = new RedisCommand<List<Object>>("HMGET", new ObjectListReplayDecoder<Object>());
     RedisCommand<Void> HMSET = new RedisCommand<Void>("HMSET", new VoidReplayConvertor());
     RedisCommand<Object> HGET = new RedisCommand<Object>("HGET", new MapValueDecoder());
     RedisCommand<Long> HDEL = new RedisStrictCommand<Long>("HDEL");
@@ -681,4 +682,60 @@ public interface RedisCommands {
                     DECR.getName(), "DECRBY", INCR.getName(), INCRBY.getName(), ZINCRBY.getName(),
                     "HINCRBYFLOAT", "HINCRBY", "INCRBYFLOAT", SETNX.getName(), MSETNX.getName(), HSETNX.getName()));
 
+    RedisStrictCommand<Long> JSON_STRLEN = new RedisStrictCommand<>("JSON.STRLEN");
+    RedisCommand<List<Long>> JSON_STRLEN_LIST = new RedisCommand("JSON.STRLEN", new ObjectListReplayDecoder<Long>(), new LongReplayConvertor());
+
+    RedisStrictCommand<Long> JSON_STRAPPEND = new RedisStrictCommand<>("JSON.STRAPPEND");
+
+    RedisCommand<List<Long>> JSON_STRAPPEND_LIST = new RedisCommand("JSON.STRAPPEND", new ObjectListReplayDecoder<Long>(), new LongReplayConvertor());
+
+    RedisCommand<Long> JSON_ARRAPPEND = new RedisCommand("JSON.ARRAPPEND", new ListFirstObjectDecoder(), new LongReplayConvertor());
+
+    RedisCommand<List<Long>> JSON_ARRAPPEND_LIST = new RedisCommand("JSON.ARRAPPEND", new ObjectListReplayDecoder<Long>(), new LongReplayConvertor());
+
+    RedisStrictCommand<Long> JSON_ARRINDEX = new RedisStrictCommand<>("JSON.ARRINDEX");
+
+    RedisCommand<List<Long>> JSON_ARRINDEX_LIST = new RedisCommand("JSON.ARRINDEX", new ObjectListReplayDecoder<Long>(), new LongReplayConvertor());
+
+    RedisStrictCommand<Long> JSON_ARRINSERT = new RedisStrictCommand<>("JSON.ARRINSERT");
+
+    RedisCommand<List<Long>> JSON_ARRINSERT_LIST = new RedisCommand("JSON.ARRINSERT", new ObjectListReplayDecoder<Long>(), new LongReplayConvertor());
+
+    RedisStrictCommand<Long> JSON_ARRLEN = new RedisStrictCommand<>("JSON.ARRLEN");
+
+    RedisCommand<List<Long>> JSON_ARRLEN_LIST = new RedisCommand("JSON.ARRLEN", new ObjectListReplayDecoder<Long>(), new LongReplayConvertor());
+
+    RedisStrictCommand<Object> JSON_ARRPOP = new RedisStrictCommand<>("JSON.ARRPOP");
+
+    RedisCommand<List<Object>> JSON_ARRPOP_LIST = new RedisCommand("JSON.ARRPOP", new ObjectListReplayDecoder<>());
+
+    RedisStrictCommand<Long> JSON_ARRTRIM = new RedisStrictCommand<>("JSON.ARRTRIM");
+
+    RedisCommand<List<Long>> JSON_ARRTRIM_LIST = new RedisCommand("JSON.ARRTRIM", new ObjectListReplayDecoder<Long>(), new LongReplayConvertor());
+
+    RedisStrictCommand<Long> JSON_OBJLEN = new RedisStrictCommand<>("JSON.OBJLEN");
+
+    RedisCommand<List<Long>> JSON_OBJLEN_LIST = new RedisCommand("JSON.OBJLEN", new ObjectListReplayDecoder<Long>(), new LongReplayConvertor());
+
+    RedisCommand<List<String>> JSON_OBJKEYS = new RedisCommand("JSON.OBJKEYS", new StringListReplayDecoder());
+
+    RedisCommand<List<List<String>>> JSON_OBJKEYS_LIST = new RedisCommand("JSON.OBJKEYS", new StringListReplayDecoder());
+
+    RedisCommand<Boolean> JSON_TOGGLE = new RedisCommand<Boolean>("JSON.TOGGLE", new BooleanReplayConvertor());
+
+    RedisCommand<List<Boolean>> JSON_TOGGLE_LIST = new RedisCommand("JSON.TOGGLE", new ObjectListReplayDecoder(), new BooleanReplayConvertor());
+
+    RedisCommand<JsonType> JSON_TYPE = new RedisCommand<>("JSON.TYPE", new JsonTypeConvertor());
+
+    RedisStrictCommand<Long> JSON_CLEAR = new RedisStrictCommand<>("JSON.CLEAR");
+    RedisStrictCommand<Object> JSON_GET = new RedisStrictCommand<>("JSON.GET");
+
+    RedisStrictCommand<Void> JSON_DEL = new RedisStrictCommand<>("JSON.DEL", new VoidReplayConvertor());
+
+    RedisStrictCommand<Long> JSON_DEL_LONG = new RedisStrictCommand<>("JSON.DEL");
+
+    RedisStrictCommand<Boolean> JSON_DEL_BOOLEAN = new RedisStrictCommand<>("JSON.DEL", new BooleanReplayConvertor());
+
+    RedisStrictCommand<Void> JSON_SET = new RedisStrictCommand<>("JSON.SET", new VoidReplayConvertor());
+    RedisStrictCommand<Boolean> JSON_SET_BOOLEAN = new RedisStrictCommand<>("JSON.SET", new BooleanNotNullReplayConvertor());
 }

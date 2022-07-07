@@ -57,20 +57,19 @@ public class RedissonTransactionalSetCache<V> extends RedissonSetCache<V> {
         this.transactionalSet = new TransactionalSetCache<V>(commandExecutor, timeout, operations, innerSet, transactionId);
     }
 
-
     @Override
     public RFuture<Boolean> expireAsync(long timeToLive, TimeUnit timeUnit, String param, String... keys) {
-        throw new UnsupportedOperationException("expire method is not supported in transaction");
+        return transactionalSet.expireAsync(timeToLive, timeUnit, param, keys);
     }
 
     @Override
     protected RFuture<Boolean> expireAtAsync(long timestamp, String param, String... keys) {
-        throw new UnsupportedOperationException("expire method is not supported in transaction");
+        return transactionalSet.expireAtAsync(timestamp, param, keys);
     }
     
     @Override
     public RFuture<Boolean> clearExpireAsync() {
-        throw new UnsupportedOperationException("clearExpire method is not supported in transaction");
+        return transactionalSet.clearExpireAsync();
     }
     
     @Override
@@ -141,7 +140,25 @@ public class RedissonTransactionalSetCache<V> extends RedissonSetCache<V> {
         checkState();
         return transactionalSet.removeAllAsync(c);
     }
-    
+
+    @Override
+    public RFuture<Boolean> unlinkAsync() {
+        checkState();
+        return transactionalSet.unlinkAsync();
+    }
+
+    @Override
+    public RFuture<Boolean> touchAsync() {
+        checkState();
+        return transactionalSet.touchAsync();
+    }
+
+    @Override
+    public RFuture<Boolean> deleteAsync() {
+        checkState();
+        return transactionalSet.deleteAsync();
+    }
+
     protected void checkState() {
         if (executed.get()) {
             throw new IllegalStateException("Unable to execute operation. Transaction is in finished state!");

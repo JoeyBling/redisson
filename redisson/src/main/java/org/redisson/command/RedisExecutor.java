@@ -15,7 +15,6 @@
  */
 package org.redisson.command;
 
-import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.util.ReferenceCountUtil;
@@ -194,18 +193,10 @@ public class RedisExecutor<V, R> {
                             if (attempt == attempts) {
                                 if (writeFuture != null && writeFuture.cancel(false)) {
                                     if (exception == null) {
-                                        long totalSize = 0;
-                                        if (params != null) {
-                                            for (Object param : params) {
-                                                if (param instanceof ByteBuf) {
-                                                    totalSize += ((ByteBuf) param).readableBytes();
-                                                }
-                                            }
-                                        }
-
                                         exception = new RedisTimeoutException("Command still hasn't been written into connection! " +
-                                                "Try to increase nettyThreads setting. Payload size in bytes: " + totalSize
-                                                + ". Node source: " + source + ", connection: " + getNow(connectionFuture)
+                                                "Check connection with Redis node: " + getNow(connectionFuture).getRedisClient().getAddr() +
+                                                " for TCP packet drops. Try to increase nettyThreads setting. "
+                                                + " Node source: " + source + ", connection: " + getNow(connectionFuture)
                                                 + ", command: " + LogHelper.toString(command, params)
                                                 + " after " + attempt + " retry attempts");
                                     }
@@ -338,7 +329,8 @@ public class RedisExecutor<V, R> {
                     new RedisResponseTimeoutException("Redis server response timeout (" + timeoutAmount + " ms) occured"
                             + " after " + attempt + " retry attempts,"
                             + " is non-idempotent command: " + (command != null && command.isNoRetry())
-                            + ". Increase nettyThreads and/or timeout settings. Try to define pingConnectionInterval setting. Command: "
+                            + " Check connection with Redis node: " + connection.getRedisClient().getAddr() + " for TCP packet drops. "
+                            + " Try to increase nettyThreads and/or timeout settings. Command: "
                             + LogHelper.toString(command, params) + ", channel: " + connection.getChannel()));
         };
 
@@ -363,7 +355,7 @@ public class RedisExecutor<V, R> {
                 if (attemptPromise.complete(null)) {
                     connection.forceFastReconnectAsync();
                 }
-            }, popTimeout + 1, TimeUnit.SECONDS);
+            }, popTimeout + 3, TimeUnit.SECONDS);
         } else {
             scheduledFuture = null;
         }
@@ -543,7 +535,8 @@ public class RedisExecutor<V, R> {
             }
             writeFuture = connection.send(new CommandData<>(attemptPromise, codec, command, params));
 
-            if (connectionManager.getConfig().getMasterConnectionPoolSize() < 10) {
+            if (connectionManager.getConfig().getMasterConnectionPoolSize() < 10
+                    && !command.isBlockingCommand()) {
                 release(connection);
             }
         }
@@ -557,7 +550,9 @@ public class RedisExecutor<V, R> {
         RedisConnection connection = getNow(connectionFuture);
         connectionManager.getShutdownLatch().release();
         if (connectionManager.getConfig().getMasterConnectionPoolSize() < 10) {
-            if (source.getRedirect() == Redirect.ASK || getClass() != RedisExecutor.class) {
+            if (source.getRedirect() == Redirect.ASK
+                    || getClass() != RedisExecutor.class
+                        || (command != null && command.isBlockingCommand())) {
                 release(connection);
             }
         } else {

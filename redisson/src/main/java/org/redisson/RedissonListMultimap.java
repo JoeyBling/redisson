@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -310,7 +310,9 @@ public class RedissonListMultimap<K, V> extends RedissonMultimap<K, V> implement
                 "redis.call('hset', KEYS[1], ARGV[1], ARGV[2]); " +
                 "local members = redis.call('lrange', KEYS[2], 0, -1); " +
                 "redis.call('del', KEYS[2]); " +
-                "redis.call('rpush', KEYS[2], unpack(ARGV, 3, #ARGV)); " +
+                "if #ARGV > 2 then " +
+                    "redis.call('rpush', KEYS[2], unpack(ARGV, 3, #ARGV)); " +
+                "end; " +
                 "return members; ",
             Arrays.<Object>asList(getRawName(), setName), params.toArray());
     }

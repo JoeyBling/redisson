@@ -14,14 +14,14 @@ Maven
      <dependency>
          <groupId>org.redisson</groupId>
          <artifactId>redisson-spring-boot-starter</artifactId>
-         <version>3.17.4</version>
+         <version>3.18.0</version>
      </dependency>
 ```
 
 Gradle
 
 ```groovy
-     compile 'org.redisson:redisson-spring-boot-starter:3.17.4'
+     compile 'org.redisson:redisson-spring-boot-starter:3.18.0'
 ```
 
 
@@ -54,13 +54,21 @@ spring:
       nodes:
 ```
 
-Using Redisson settings:
+Using Redisson config file:
 
 ```yaml
 spring:
   redis:
    redisson: 
       file: classpath:redisson.yaml
+```
+
+Using Redisson settings:
+
+```yaml
+spring:
+  redis:
+   redisson: 
       config: |
         clusterServersConfig:
           idleConnectionTimeout: 10000

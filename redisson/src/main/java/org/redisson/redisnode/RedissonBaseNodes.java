@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,8 +29,9 @@ import org.redisson.misc.RedisURI;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.TimeUnit;
 
 /**
  *
@@ -110,51 +111,31 @@ public class RedissonBaseNodes implements BaseRedisNodes {
     @Override
     public boolean pingAll(long timeout, TimeUnit timeUnit) {
         List<RedisNode> clients = getNodes();
-        Map<RedisConnection, RFuture<String>> result = new ConcurrentHashMap<>(clients.size());
-        CountDownLatch latch = new CountDownLatch(clients.size());
+        List<CompletableFuture<Boolean>> futures = new ArrayList<>();
         for (RedisNode entry : clients) {
             CompletionStage<RedisConnection> f = entry.getClient().connectAsync();
-            f.whenComplete((c, e) -> {
-                if (c != null) {
-                    RFuture<String> r = c.async(timeUnit.toMillis(timeout), RedisCommands.PING);
-                    result.put(c, r);
-                }
-                latch.countDown();
-            });
+            CompletionStage<Boolean> ff = f.thenCompose(c -> {
+                RFuture<String> r = c.async(timeUnit.toMillis(timeout), RedisCommands.PING);
+                return r.whenComplete((rr, ex) -> {
+                    c.closeAsync();
+                });
+            }).thenApply("PONG"::equals);
+            futures.add(ff.toCompletableFuture());
         }
 
-        long time = System.currentTimeMillis();
+        CompletableFuture<Void> f = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
         try {
-            latch.await();
+            f.get(timeout, timeUnit);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-        }
-
-        if (System.currentTimeMillis() - time >= connectionManager.getConfig().getConnectTimeout()) {
-            for (Map.Entry<RedisConnection, RFuture<String>> entry : result.entrySet()) {
-                entry.getKey().closeAsync();
-            }
+        } catch (Exception e) {
             return false;
         }
 
-        time = System.currentTimeMillis();
-        boolean res = true;
-        for (Map.Entry<RedisConnection, RFuture<String>> entry : result.entrySet()) {
-            RFuture<String> f = entry.getValue();
-            String pong = null;
-            try {
-                pong = f.toCompletableFuture().join();
-            } catch (Exception e) {
-                // skip
-            }
-            if (!"PONG".equals(pong)) {
-                res = false;
-            }
-            entry.getKey().closeAsync();
-        }
-
-        // true and no futures were missed during client connection
-        return res && result.size() == clients.size();
+        return futures.stream()
+                        .map(r -> r.getNow(false))
+                        .filter(r -> !r).findAny()
+                        .orElse(true);
     }
 
     @Override

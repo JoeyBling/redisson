@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -717,9 +717,9 @@ public interface RedisCommands {
 
     RedisCommand<List<Long>> JSON_OBJLEN_LIST = new RedisCommand("JSON.OBJLEN", new ObjectListReplayDecoder<Long>(), new LongReplayConvertor());
 
-    RedisCommand<List<String>> JSON_OBJKEYS = new RedisCommand("JSON.OBJKEYS", new StringListReplayDecoder());
+    RedisCommand<List<String>> JSON_OBJKEYS = new RedisCommand("JSON.OBJKEYS", new StringListListReplayDecoder());
 
-    RedisCommand<List<List<String>>> JSON_OBJKEYS_LIST = new RedisCommand("JSON.OBJKEYS", new StringListReplayDecoder());
+    RedisCommand<List<List<String>>> JSON_OBJKEYS_LIST = new RedisCommand("JSON.OBJKEYS", new StringListListReplayDecoder());
 
     RedisCommand<Boolean> JSON_TOGGLE = new RedisCommand<Boolean>("JSON.TOGGLE", new BooleanReplayConvertor());
 

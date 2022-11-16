@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -41,8 +41,12 @@ public final class ExecutorOptions {
     }
     
     /**
-     * Defines task retry interval at the end of which task is executed again.
-     * ExecutorService worker re-schedule task execution retry every 5 seconds.
+     * Defines task retry interval at the end of which task
+     * is executed again by ExecutorService worker.
+     * <p>
+     * Counted from the task start moment.
+     * Applied only if the task was in progress but for some reason
+     * wasn't marked as completed (successful or unsuccessful).
      * <p>
      * Set <code>0</code> to disable.
      * <p>

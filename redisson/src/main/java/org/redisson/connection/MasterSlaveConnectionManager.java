@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -708,7 +708,7 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
 
     protected CompletableFuture<RedisURI> resolveIP(String scheme, RedisURI address) {
         if (address.isIP()) {
-            RedisURI addr = applyNatMap(address);
+            RedisURI addr = toURI(scheme, address.getHost(), "" + address.getPort());
             return CompletableFuture.completedFuture(addr);
         }
 

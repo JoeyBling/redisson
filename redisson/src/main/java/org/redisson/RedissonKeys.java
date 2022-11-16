@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,7 +38,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
@@ -171,19 +171,7 @@ public class RedissonKeys implements RKeys {
             return new CompletableFutureWrapper<>(0L);
         }
 
-        return commandExecutor.writeBatchedAsync(null, RedisCommands.TOUCH_LONG, new SlotCallback<Long, Long>() {
-            AtomicLong results = new AtomicLong();
-
-            @Override
-            public void onSlotResult(Long result) {
-                results.addAndGet(result);
-            }
-
-            @Override
-            public Long onFinish() {
-                return results.get();
-            }
-        }, names);
+        return commandExecutor.writeBatchedAsync(null, RedisCommands.TOUCH_LONG, new LongSlotCallback(), names);
     }
 
     @Override
@@ -193,10 +181,15 @@ public class RedissonKeys implements RKeys {
 
     @Override
     public RFuture<Long> countExistsAsync(String... names) {
-        List<CompletableFuture<Long>> futures = commandExecutor.readAllAsync(RedisCommands.EXISTS_LONG, names);
-        CompletableFuture<Void> f = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
-        CompletableFuture<Long> s = f.thenApply(r -> futures.stream().mapToLong(v -> v.getNow(0L)).sum());
-        return new CompletableFutureWrapper<>(s);
+        if (names.length == 0) {
+            return new CompletableFutureWrapper<>(0L);
+        }
+
+        List<String> keysList = Arrays.stream(names)
+                .map(k -> commandExecutor.getConnectionManager().getConfig().getNameMapper().map(k))
+                .collect(Collectors.toList());
+
+        return commandExecutor.readBatchedAsync(StringCodec.INSTANCE, RedisCommands.EXISTS_LONG, new LongSlotCallback(), keysList.toArray(new String[0]));
     }
 
     @Override
@@ -316,19 +309,7 @@ public class RedissonKeys implements RKeys {
             return new CompletableFutureWrapper<>(0L);
         }
 
-        return commandExecutor.writeBatchedAsync(null, RedisCommands.UNLINK, new SlotCallback<Long, Long>() {
-            AtomicLong results = new AtomicLong();
-
-            @Override
-            public void onSlotResult(Long result) {
-                results.addAndGet(result);
-            }
-
-            @Override
-            public Long onFinish() {
-                return results.get();
-            }
-        }, keys);
+        return commandExecutor.writeBatchedAsync(null, RedisCommands.UNLINK, new LongSlotCallback(), keys);
     }
 
     @Override
@@ -337,19 +318,7 @@ public class RedissonKeys implements RKeys {
             return new CompletableFutureWrapper<>(0L);
         }
 
-        return commandExecutor.writeBatchedAsync(null, RedisCommands.DEL, new SlotCallback<Long, Long>() {
-            AtomicLong results = new AtomicLong();
-
-            @Override
-            public void onSlotResult(Long result) {
-                results.addAndGet(result);
-            }
-
-            @Override
-            public Long onFinish() {
-                return results.get();
-            }
-        }, keys);
+        return commandExecutor.writeBatchedAsync(null, RedisCommands.DEL, new LongSlotCallback(), keys);
     }
 
     @Override

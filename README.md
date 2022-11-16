@@ -6,15 +6,15 @@
 [Quick start](https://github.com/redisson/redisson#quick-start) | [Documentation](https://github.com/redisson/redisson/wiki/Table-of-Content) | [Changelog](https://github.com/redisson/redisson/blob/master/CHANGELOG.md) | [Code examples](https://github.com/redisson/redisson-examples) | [FAQs](https://github.com/redisson/redisson/wiki/16.-FAQ) | [Report an issue](https://github.com/redisson/redisson/issues/new)
 
 Based on high-performance async and lock-free Java Redis client and [Netty](http://netty.io) framework.  
-JDK compatibility:  1.8 - 18, Android  
+JDK compatibility:  1.8+, Android  
 
 ## Features
 
-* Redis Replicated setup (including support of [AWS ElastiCache](http://docs.aws.amazon.com/AmazonElastiCache/latest/UserGuide/Replication.html) and [Azure Redis Cache](https://azure.microsoft.com/en-us/services/cache/))  
-* Redis Cluster setup (including support of [AWS ElastiCache Cluster](http://docs.aws.amazon.com/AmazonElastiCache/latest/UserGuide/Clusters.html) and [Azure Redis Cache](https://azure.microsoft.com/en-us/services/cache/))  
+* Redis Replicated setup (also compatible with [AWS ElastiCache](http://docs.aws.amazon.com/AmazonElastiCache/latest/UserGuide/Replication.html) and [Azure Redis Cache](https://azure.microsoft.com/en-us/services/cache/))  
+* Redis Cluster setup (also compatible with [AWS ElastiCache Cluster](http://docs.aws.amazon.com/AmazonElastiCache/latest/UserGuide/Clusters.html), [Amazon MemoryDB](https://aws.amazon.com/memorydb) and [Azure Redis Cache](https://azure.microsoft.com/en-us/services/cache/))  
 * Redis Sentinel setup  
 * Redis with Master with Slave only  
-* Redis single (including support of [Azure Redis Cache](https://azure.microsoft.com/en-us/services/cache/) and [Google Cloud Memorystore for Redis](https://cloud.google.com/memorystore/docs/redis/))  
+* Redis Single (also compatible with [Azure Redis Cache](https://azure.microsoft.com/en-us/services/cache/) and [Google Cloud Memorystore for Redis](https://cloud.google.com/memorystore/docs/redis/))  
 * Thread-safe implementation  
 * [JSON datatype](https://github.com/redisson/redisson/wiki/6.-distributed-objects/#615-json-object-holder)
 * [Reactive Streams](https://github.com/redisson/redisson/wiki/3.-operations-execution#32-reactive-way) API  
@@ -105,14 +105,14 @@ Used by
     <dependency>
        <groupId>org.redisson</groupId>
        <artifactId>redisson</artifactId>
-       <version>3.17.4</version>
+       <version>3.18.0</version>
     </dependency>  
 
 #### Gradle
-    compile 'org.redisson:redisson:3.17.4'  
+    compile 'org.redisson:redisson:3.18.0'  
 
 #### SBT
-    libraryDependencies += "org.redisson" % "redisson" % "3.17.4"
+    libraryDependencies += "org.redisson" % "redisson" % "3.18.0"
 
 #### Java
 
@@ -170,8 +170,8 @@ Try __[Redisson PRO](https://redisson.pro)__ with **ultra-fast performance** and
 
 ## Downloads
    
-[Redisson 3.17.4](https://repository.sonatype.org/service/local/artifact/maven/redirect?r=central-proxy&g=org.redisson&a=redisson&v=3.17.4&e=jar),
-[Redisson node 3.17.4](https://repository.sonatype.org/service/local/artifact/maven/redirect?r=central-proxy&g=org.redisson&a=redisson-all&v=3.17.4&e=jar)  
+[Redisson 3.18.0](https://repository.sonatype.org/service/local/artifact/maven/redirect?r=central-proxy&g=org.redisson&a=redisson&v=3.18.0&e=jar),
+[Redisson node 3.18.0](https://repository.sonatype.org/service/local/artifact/maven/redirect?r=central-proxy&g=org.redisson&a=redisson-all&v=3.18.0&e=jar)  
 
 ## FAQs
 

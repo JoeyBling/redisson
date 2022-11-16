@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,7 +31,10 @@ import javax.inject.Singleton;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.Optional;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 /**
  *
@@ -60,9 +63,10 @@ public class RedissonClientProducer {
             configStream.read(array);
             config = new String(array, StandardCharsets.UTF_8);
         } else {
-            String yaml = PropertiesConvertor.toYaml("quarkus.redisson.", ConfigProvider.getConfig().getPropertyNames(), prop -> {
+            Stream<String> s = StreamSupport.stream(ConfigProvider.getConfig().getPropertyNames().spliterator(), false);
+            String yaml = PropertiesConvertor.toYaml("quarkus.redisson.", s.sorted().collect(Collectors.toList()), prop -> {
                 return ConfigProvider.getConfig().getValue(prop, String.class);
-            });
+            }, false);
             config = yaml;
         }
 

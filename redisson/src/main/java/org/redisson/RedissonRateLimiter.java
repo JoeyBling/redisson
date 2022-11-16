@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -274,7 +274,10 @@ public class RedissonRateLimiter extends RedissonExpirable implements RRateLimit
                 }
             }
 
-            RateType type = RateType.values()[Integer.valueOf(map.get("type"))];
+            if (map.size()==0){
+                return new RateLimiterConfig(RateType.OVERALL, 0L, 0L);
+            }
+            RateType type = RateType.values()[Integer.parseInt(map.get("type"))];
             Long rateInterval = Long.valueOf(map.get("interval"));
             Long rate = Long.valueOf(map.get("rate"));
             return new RateLimiterConfig(type, rateInterval, rate);

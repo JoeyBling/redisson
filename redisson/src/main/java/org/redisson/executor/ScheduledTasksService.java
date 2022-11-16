@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -96,13 +96,15 @@ public class ScheduledTasksService extends TasksService {
         RFuture<Boolean> f = commandExecutor.evalWriteNoRetryAsync(name, StringCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
                    // remove from scheduler queue
                     "if redis.call('exists', KEYS[3]) == 0 then "
-                      + "return 1;"
+                      + "return nil;"
                   + "end;"
                       
                   + "local task = redis.call('hget', KEYS[6], ARGV[1]); "
                   + "redis.call('hdel', KEYS[6], ARGV[1]); "
                   
                   + "redis.call('zrem', KEYS[2], 'ff' .. ARGV[1]); "
+                  + "redis.call('zrem', KEYS[8], ARGV[1]); "
+
                   + "local removedScheduled = redis.call('zrem', KEYS[2], ARGV[1]); "
                   + "local removed = redis.call('lrem', KEYS[1], 1, ARGV[1]); "
 
@@ -119,11 +121,11 @@ public class ScheduledTasksService extends TasksService {
                       + "return 1;"
                   + "end;"
                   + "if task == false then "
-                      + "return 1; "
+                      + "return nil; "
                   + "end;"
                   + "return 0;",
               Arrays.asList(requestQueueName, schedulerQueueName, tasksCounterName, statusName,
-                                terminationTopicName, tasksName, tasksRetryIntervalName),
+                                terminationTopicName, tasksName, tasksRetryIntervalName, tasksExpirationTimeName),
                 taskId, RedissonExecutorService.SHUTDOWN_STATE, RedissonExecutorService.TERMINATED_STATE);
         return f.toCompletableFuture();
     }

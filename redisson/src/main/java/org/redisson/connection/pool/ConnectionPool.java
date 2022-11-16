@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -66,10 +66,11 @@ abstract class ConnectionPool<T extends RedisConnection> {
     }
 
     public CompletableFuture<Void> add(ClientConnectionsEntry entry) {
-        CompletableFuture<Void> promise = initConnections(entry, true);
-        return promise.thenAccept(r -> {
-            entries.add(entry);
-        });
+        return initConnections(entry, true);
+    }
+
+    public void addEntry(ClientConnectionsEntry entry) {
+        entries.add(entry);
     }
 
     public CompletableFuture<Void> initConnections(ClientConnectionsEntry entry) {
@@ -111,6 +112,9 @@ abstract class ConnectionPool<T extends RedisConnection> {
             createConnection(entry, promise);
             promise.whenComplete((conn, e) -> {
                 if (e == null) {
+                    if (changeUsage()) {
+                        conn.decUsage();
+                    }
                     if (!initPromise.isDone()) {
                         entry.addConnection(conn);
                     } else {
@@ -279,8 +283,15 @@ abstract class ConnectionPool<T extends RedisConnection> {
                 return;
             }
 
+            if (changeUsage()) {
+                promise.thenApply(c -> c.incUsage());
+            }
             connectedSuccessful(entry, promise, conn);
         });
+    }
+
+    protected boolean changeUsage() {
+        return true;
     }
 
     private void connectedSuccessful(ClientConnectionsEntry entry, CompletableFuture<T> promise, T conn) {
@@ -298,8 +309,8 @@ abstract class ConnectionPool<T extends RedisConnection> {
         if (entry.getNodeType() == NodeType.SLAVE) {
             entry.trySetupFistFail();
             if (entry.isFailed()) {
-            checkForReconnect(entry, cause);
-        }
+                checkForReconnect(entry, cause);
+            }
         }
 
         releaseConnection(entry);
@@ -311,12 +322,12 @@ abstract class ConnectionPool<T extends RedisConnection> {
         if (entry.getNodeType() == NodeType.SLAVE) {
             entry.trySetupFistFail();
             if (entry.isFailed()) {
-            conn.closeAsync();
-            entry.getAllConnections().remove(conn);
-            checkForReconnect(entry, null);
+                conn.closeAsync();
+                entry.getAllConnections().remove(conn);
+                checkForReconnect(entry, null);
             } else {
-            releaseConnection(entry, conn);
-        }
+                releaseConnection(entry, conn);
+            }
         } else {
             releaseConnection(entry, conn);
         }
@@ -328,12 +339,14 @@ abstract class ConnectionPool<T extends RedisConnection> {
     }
 
     private void checkForReconnect(ClientConnectionsEntry entry, Throwable cause) {
-        if (masterSlaveEntry.slaveDown(entry, FreezeReason.RECONNECT)) {
-            log.error("slave " + entry.getClient().getAddr() + " has been disconnected after " 
+        masterSlaveEntry.slaveDownAsync(entry, FreezeReason.RECONNECT).thenAccept(r -> {
+            if (r) {
+                log.error("slave " + entry.getClient().getAddr() + " has been disconnected after "
                         + config.getFailedSlaveCheckInterval() + " ms interval since moment of the first failed connection", cause);
-            scheduleCheck(entry);
+                scheduleCheck(entry);
             }
-        }
+        });
+    }
 
     private void scheduleCheck(ClientConnectionsEntry entry) {
 

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.JsonType;
 import org.redisson.api.RJsonBucket;
+import org.redisson.client.codec.StringCodec;
 import org.redisson.codec.JacksonCodec;
 
 import java.math.BigDecimal;
@@ -68,6 +69,16 @@ public class RedissonJsonBucketTest extends BaseTest {
         public void setType(NestedType type) {
             this.type = type;
         }
+    }
+
+    @Test
+    public void testCompareAndSetUpdate() {
+        RJsonBucket<String> b = redisson.getJsonBucket("test", StringCodec.INSTANCE);
+        b.set("{\"foo\": false, \"bar\":true}");
+        boolean s = b.compareAndSet("$.foo", false, null);
+        assertThat(s).isTrue();
+        boolean result = b.isExists();
+        assertThat(result).isTrue();
     }
 
     @Test
@@ -333,6 +344,20 @@ public class RedissonJsonBucketTest extends BaseTest {
         assertThat(nt3.getValues()).isEqualTo(nt2.getValues());
     }
 
+    @Test
+    public void testKeys() {
+        RJsonBucket<String> jb = redisson.getJsonBucket("test", StringCodec.INSTANCE);
+        jb.set("{\"a\":false, \"nested\": {\"a\": {\"b\":2, \"c\": 1, \"d\": 3}}}");
+
+        List<String> keys1 = jb.getKeys();
+        assertThat(keys1).containsExactly("a", "nested");
+
+        List<String> keys3 = jb.getKeys("nested.a");
+        assertThat(keys3).containsExactly("b", "c", "d");
+
+        List<List<String>> keys5 = jb.getKeysMulti("$.nested.a");
+        assertThat(keys5).isEqualTo(Arrays.asList(Arrays.asList("b", "c", "d")));
+    }
 
     @Test
     public void testCompareAndSet() {
@@ -408,8 +433,8 @@ public class RedissonJsonBucketTest extends BaseTest {
         NestedType nt2 = new NestedType();
         nt2.setValue(124);
         nt2.setValues(Arrays.asList("t4", "t3"));
-        assertThat(al.trySet("$.type", nt2)).isFalse();
-        assertThat(al.trySet("type", nt2)).isFalse();
+        assertThat(al.setIfAbsent("$.type", nt2)).isFalse();
+        assertThat(al.setIfAbsent("type", nt2)).isFalse();
 
         Integer n2 = al.get(new JacksonCodec<>(Integer.class), "type.value");
         assertThat(n2).isEqualTo(123);

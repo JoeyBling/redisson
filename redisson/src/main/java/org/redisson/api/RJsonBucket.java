@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,6 +46,17 @@ public interface RJsonBucket<V> extends RBucket<V>, RJsonBucketAsync<V> {
      * @return {@code true} if successful, or {@code false} if
      *         value was already set
      */
+    boolean setIfAbsent(String path, Object value);
+
+    /**
+     * Use {@link #setIfAbsent(String, Object)} instead
+     *
+     * @param path JSON path
+     * @param value object
+     * @return {@code true} if successful, or {@code false} if
+     *         value was already set
+     */
+    @Deprecated
     boolean trySet(String path, Object value);
 
     /**

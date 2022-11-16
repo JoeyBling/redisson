@@ -179,13 +179,27 @@ public class RedissonLocalCachedMapTest extends BaseMapTest {
                                     .writeMode(WriteMode.WRITE_BEHIND);
         return redisson.getLocalCachedMap("test", options);        
     }
-        
+
+    @Override
+    protected <K, V> RMap<K, V> getWriteBehindAsyncTestMap(String name, Map<K, V> map) {
+        LocalCachedMapOptions<K, V> options = LocalCachedMapOptions.<K, V>defaults()
+                .writerAsync(createMapWriterAsync(map))
+                .writeMode(WriteMode.WRITE_BEHIND);
+        return redisson.getLocalCachedMap("test", options);
+    }
+
     @Override
     protected <K, V> RMap<K, V> getLoaderTestMap(String name, Map<K, V> map) {
         LocalCachedMapOptions<K, V> options = LocalCachedMapOptions.<K, V>defaults().loader(createMapLoader(map));
         return redisson.getLocalCachedMap(name, options);        
     }
-        
+
+    @Override
+    protected <K, V> RMap<K, V> getLoaderAsyncTestMap(String name, Map<K, V> map) {
+        LocalCachedMapOptions<K, V> options = LocalCachedMapOptions.<K, V>defaults().loaderAsync(createMapLoaderAsync(map));
+        return redisson.getLocalCachedMap(name, options);
+    }
+
     @Test
     public void testBigPutAll() throws InterruptedException {
         RLocalCachedMap<Object, Object> m = redisson.getLocalCachedMap("testValuesWithNearCache2",

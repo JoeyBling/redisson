@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -74,7 +74,7 @@ public class RedissonExtension implements Extension {
                     String yamlConfig = PropertiesConvertor.toYaml(Redisson.class.getName() + "." + instanceName + ".",
                             cfg.getPropertyNames(), prop -> {
                                 return cfg.getValue(prop, String.class);
-                    });
+                    }, true);
 
                     try {
                         org.redisson.config.Config config = org.redisson.config.Config.fromYAML(yamlConfig);

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package org.redisson.spring.data.connection;
 
+import io.netty.buffer.ByteBuf;
 import org.redisson.Redisson;
 import org.redisson.api.BatchOptions;
 import org.redisson.api.BatchOptions.ExecutionMode;
@@ -41,6 +42,10 @@ import org.springframework.data.redis.connection.*;
 import org.springframework.data.redis.core.*;
 import org.springframework.data.redis.core.types.Expiration;
 import org.springframework.data.redis.core.types.RedisClientInfo;
+import org.springframework.data.redis.domain.geo.BoxShape;
+import org.springframework.data.redis.domain.geo.GeoReference;
+import org.springframework.data.redis.domain.geo.GeoShape;
+import org.springframework.data.redis.domain.geo.RadiusShape;
 import org.springframework.util.Assert;
 import org.springframework.util.ObjectUtils;
 import org.springframework.util.ReflectionUtils;
@@ -1902,11 +1907,13 @@ public class RedissonConnection extends AbstractRedisConnection {
         params.add(script);
         params.add(numKeys);
         params.addAll(Arrays.asList(keysAndArgs));
-        return write(null, ByteArrayCodec.INSTANCE, c, params.toArray());
+
+        byte[] key = getKey(numKeys, keysAndArgs);
+        return write(key, ByteArrayCodec.INSTANCE, c, params.toArray());
     }
 
     protected RedisCommand<?> toCommand(ReturnType returnType, String name) {
-        RedisCommand<?> c = null; 
+        RedisCommand<?> c = null;
         if (returnType == ReturnType.BOOLEAN) {
             c = org.redisson.api.RScript.ReturnType.BOOLEAN.getCommand();
         } else if (returnType == ReturnType.INTEGER) {
@@ -1937,7 +1944,9 @@ public class RedissonConnection extends AbstractRedisConnection {
         params.add(scriptSha);
         params.add(numKeys);
         params.addAll(Arrays.asList(keysAndArgs));
-        return write(null, ByteArrayCodec.INSTANCE, c, params.toArray());
+
+        byte[] key = getKey(numKeys, keysAndArgs);
+        return write(key, ByteArrayCodec.INSTANCE, c, params.toArray());
     }
 
     @Override
@@ -1947,7 +1956,16 @@ public class RedissonConnection extends AbstractRedisConnection {
         params.add(scriptSha);
         params.add(numKeys);
         params.addAll(Arrays.asList(keysAndArgs));
-        return write(null, ByteArrayCodec.INSTANCE, c, params.toArray());
+
+        byte[] key = getKey(numKeys, keysAndArgs);
+        return write(key, ByteArrayCodec.INSTANCE, c, params.toArray());
+    }
+
+    private static byte[] getKey(int numKeys, byte[][] keysAndArgs) {
+        if (numKeys > 0 && keysAndArgs.length > 0) {
+            return keysAndArgs[0];
+        }
+        return null;
     }
 
     @Override
@@ -2115,7 +2133,127 @@ public class RedissonConnection extends AbstractRedisConnection {
     public Long geoRemove(byte[] key, byte[]... members) {
         return zRem(key, members);
     }
-    
+
+    @Override
+    public GeoResults<GeoLocation<byte[]>> geoSearch(byte[] key, GeoReference<byte[]> reference, GeoShape predicate, GeoSearchCommandArgs args) {
+        Assert.notNull(args, "Args must not be null!");
+        Assert.notNull(key, "Key must not be null!");
+        Assert.notNull(predicate, "Shape must not be null!");
+        Assert.notNull(reference, "Reference must not be null!");
+
+        List<Object> commandParams = new ArrayList<>();
+        commandParams.add(key);
+
+        if (reference instanceof GeoReference.GeoCoordinateReference) {
+            GeoReference.GeoCoordinateReference ref = (GeoReference.GeoCoordinateReference) reference;
+            commandParams.add("FROMLONLAT");
+            commandParams.add(convert(ref.getLongitude()));
+            commandParams.add(convert(ref.getLatitude()));
+        } else if (reference instanceof GeoReference.GeoMemberReference) {
+            GeoReference.GeoMemberReference ref = (GeoReference.GeoMemberReference) reference;
+            commandParams.add("FROMMEMBER");
+            commandParams.add(encode(ref.getMember()));
+        }
+
+        if (predicate instanceof RadiusShape) {
+            commandParams.add("BYRADIUS");
+            RadiusShape shape = (RadiusShape) predicate;
+            commandParams.add(shape.getRadius().getValue());
+            commandParams.add(convert(shape.getMetric()).getAbbreviation());
+        } else if (predicate instanceof BoxShape) {
+            BoxShape shape = (BoxShape) predicate;
+            commandParams.add("BYBOX");
+            commandParams.add(shape.getBoundingBox().getWidth().getValue());
+            commandParams.add(shape.getBoundingBox().getHeight().getValue());
+            commandParams.add(convert(shape.getMetric()).getAbbreviation());
+        }
+
+        if (args.hasSortDirection()) {
+            commandParams.add(args.getSortDirection());
+        }
+        if (args.getLimit() != null) {
+            commandParams.add("COUNT");
+            commandParams.add(args.getLimit());
+            if (args.hasAnyLimit()) {
+                commandParams.add("ANY");
+            }
+        }
+        RedisCommand<GeoResults<GeoLocation<byte[]>>> cmd;
+        if (args.getFlags().contains(GeoRadiusCommandArgs.Flag.WITHCOORD)) {
+            cmd = new RedisCommand<>("GEOSEARCH", postitionDecoder);
+            commandParams.add("WITHCOORD");
+        } else {
+            MultiDecoder<GeoResults<GeoLocation<byte[]>>> distanceDecoder = new ListMultiDecoder2(new GeoResultsDecoder(predicate.getMetric()), new GeoDistanceDecoder());
+            cmd = new RedisCommand<>("GEOSEARCH", distanceDecoder);
+            commandParams.add("WITHDIST");
+        }
+
+        return read(key, ByteArrayCodec.INSTANCE, cmd, commandParams.toArray());
+    }
+
+    @Override
+    public Long geoSearchStore(byte[] destKey, byte[] key, GeoReference<byte[]> reference, GeoShape predicate, GeoSearchStoreCommandArgs args) {
+        Assert.notNull(args, "Args must not be null!");
+        Assert.notNull(key, "Key must not be null!");
+        Assert.notNull(destKey, "DestKey must not be null!");
+        Assert.notNull(predicate, "Shape must not be null!");
+        Assert.notNull(reference, "Reference must not be null!");
+
+        List<Object> commandParams = new ArrayList<>();
+        commandParams.add(destKey);
+        commandParams.add(key);
+
+        if (reference instanceof GeoReference.GeoCoordinateReference) {
+            GeoReference.GeoCoordinateReference ref = (GeoReference.GeoCoordinateReference) reference;
+            commandParams.add("FROMLONLAT");
+            commandParams.add(convert(ref.getLongitude()));
+            commandParams.add(convert(ref.getLatitude()));
+        } else if (reference instanceof GeoReference.GeoMemberReference) {
+            GeoReference.GeoMemberReference ref = (GeoReference.GeoMemberReference) reference;
+            commandParams.add("FROMMEMBER");
+            commandParams.add(encode(ref.getMember()));
+        }
+
+        if (predicate instanceof RadiusShape) {
+            RadiusShape shape = (RadiusShape) predicate;
+            commandParams.add("BYRADIUS");
+            commandParams.add(shape.getRadius().getValue());
+            commandParams.add(convert(shape.getMetric()).getAbbreviation());
+        } else if (predicate instanceof BoxShape) {
+            BoxShape shape = (BoxShape) predicate;
+            commandParams.add("BYBOX");
+            commandParams.add(shape.getBoundingBox().getWidth().getValue());
+            commandParams.add(shape.getBoundingBox().getHeight().getValue());
+            commandParams.add(convert(shape.getMetric()).getAbbreviation());
+        }
+
+        if (args.hasSortDirection()) {
+            commandParams.add(args.getSortDirection());
+        }
+        if (args.getLimit() != null) {
+            commandParams.add("COUNT");
+            commandParams.add(args.getLimit());
+            if (args.hasAnyLimit()) {
+                commandParams.add("ANY");
+            }
+        }
+        if (args.isStoreDistance()) {
+            commandParams.add("STOREDIST");
+        }
+
+        return write(key, LongCodec.INSTANCE, RedisCommands.GEOSEARCHSTORE_STORE, commandParams.toArray());
+    }
+
+    private Metric convert(Metric metric) {
+        if (metric == Metrics.NEUTRAL) {
+            return DistanceUnit.METERS;
+        }
+        return metric;
+    }
+
+    private ByteBuf encode(Object value) {
+        return executorService.encode(ByteArrayCodec.INSTANCE, value);
+    }
     private static final RedisCommand<Long> PFADD = new RedisCommand<Long>("PFADD");
 
     @Override
@@ -2284,6 +2422,334 @@ public class RedissonConnection extends AbstractRedisConnection {
             return;
         }
         restore(key, ttlInMillis, serializedValue);
+    }
+
+    @Override
+    public byte[] zRandMember(byte[] key) {
+        Assert.notNull(key, "Key must not be null!");
+
+        return write(key, ByteArrayCodec.INSTANCE, RedisCommands.ZRANDMEMBER_SINGLE, (Object) key);
+    }
+
+    private static final RedisCommand<List<Object>> ZRANDMEMBER_LIST = new RedisCommand<>("ZRANDMEMBER", new ObjectListReplayDecoder<>());
+
+    @Override
+    public List<byte[]> zRandMember(byte[] key, long count) {
+        Assert.notNull(key, "Key must not be null!");
+
+        return write(key, ByteArrayCodec.INSTANCE, ZRANDMEMBER_LIST, key, count);
+    }
+
+    private static final RedisCommand<Tuple> ZRANDMEMBER_SCORE = new RedisCommand<>("ZRANDMEMBER", new ScoredSortedSingleReplayDecoder());
+
+    @Override
+    public Tuple zRandMemberWithScore(byte[] key) {
+        Assert.notNull(key, "Key must not be null!");
+
+        return write(key, ByteArrayCodec.INSTANCE, ZRANDMEMBER_SCORE, key, "WITHSCORES");
+    }
+
+    private static final RedisCommand<List<Tuple>> ZRANDMEMBER_SCORE_LIST = new RedisCommand<>("ZRANDMEMBER", new ScoredSortedListReplayDecoder());
+
+    @Override
+    public List<Tuple> zRandMemberWithScore(byte[] key, long count) {
+        Assert.notNull(key, "Key must not be null!");
+
+        return write(key, ByteArrayCodec.INSTANCE, ZRANDMEMBER_SCORE_LIST, key, count, "WITHSCORES");
+    }
+
+    private static final RedisCommand<Tuple> ZPOPMIN = new RedisCommand<>("ZPOPMIN", new ScoredSortedSingleReplayDecoder());
+
+    @Override
+    public Tuple zPopMin(byte[] key) {
+        Assert.notNull(key, "Key must not be null!");
+
+        return write(key, ByteArrayCodec.INSTANCE, ZPOPMIN, (Object) key);
+    }
+
+    @Override
+    public Set<Tuple> zPopMin(byte[] key, long count) {
+        Assert.notNull(key, "Key must not be null!");
+
+        return write(key, ByteArrayCodec.INSTANCE, ZPOPMIN, key, count);
+    }
+
+    private static final RedisCommand<Tuple> BZPOPMIN = new RedisCommand<>("BZPOPMIN", new ScoredSortedSingleReplayDecoder());
+
+    @Override
+    public Tuple bZPopMin(byte[] key, long timeout, TimeUnit unit) {
+        Assert.notNull(key, "Key must not be null!");
+
+        long seconds = unit.toSeconds(timeout);
+        return write(key, ByteArrayCodec.INSTANCE, BZPOPMIN , key, seconds);
+    }
+
+    private static final RedisCommand<Tuple> ZPOPMAX = new RedisCommand<>("ZPOPMAX", new ScoredSortedSingleReplayDecoder());
+
+    @Override
+    public Tuple zPopMax(byte[] key) {
+        Assert.notNull(key, "Key must not be null!");
+
+        return write(key, ByteArrayCodec.INSTANCE, ZPOPMAX, (Object) key);
+    }
+
+    @Override
+    public Set<Tuple> zPopMax(byte[] key, long count) {
+        Assert.notNull(key, "Key must not be null!");
+
+        return write(key, ByteArrayCodec.INSTANCE, ZPOPMAX, key, count);
+    }
+
+    private static final RedisCommand<Tuple> BZPOPMAX = new RedisCommand<>("BZPOPMAX", new ScoredSortedSingleReplayDecoder());
+
+    @Override
+    public Tuple bZPopMax(byte[] key, long timeout, TimeUnit unit) {
+        Assert.notNull(key, "Key must not be null!");
+
+        long seconds = unit.toSeconds(timeout);
+        return write(key, ByteArrayCodec.INSTANCE, BZPOPMAX , key, seconds);
+    }
+
+    private static final RedisCommand<List<Object>> ZMSCORE = new RedisCommand<>("ZMSCORE", new ObjectListReplayDecoder<>());
+
+    @Override
+    public List<Double> zMScore(byte[] key, byte[]... values) {
+        Assert.notNull(key, "Key must not be null!");
+
+        List<Object> args = new ArrayList<>(values.length + 1);
+        args.add(key);
+        args.addAll(Arrays.asList(values));
+
+        return write(key, DoubleCodec.INSTANCE, ZMSCORE, args.toArray());
+    }
+
+    private static final RedisCommand<Set<Object>> ZDIFF = new RedisCommand<>("ZDIFF", new ObjectSetReplayDecoder());
+
+    @Override
+    public Set<byte[]> zDiff(byte[]... sets) {
+        List<Object> args = new ArrayList<>(sets.length + 1);
+        args.add(sets.length);
+        args.addAll(Arrays.asList(sets));
+
+        return write(sets[0], ByteArrayCodec.INSTANCE, ZDIFF, args.toArray());
+    }
+
+    private static final RedisCommand<Set<Tuple>> ZDIFF_SCORE = new RedisCommand<>("ZDIFF", new ScoredSortedSetReplayDecoder());
+
+    @Override
+    public Set<Tuple> zDiffWithScores(byte[]... sets) {
+        List<Object> args = new ArrayList<>(sets.length + 1);
+        args.add(sets.length);
+        args.addAll(Arrays.asList(sets));
+        args.add("WITHSCORES");
+
+        return write(sets[0], ByteArrayCodec.INSTANCE, ZDIFF_SCORE, args.toArray());
+    }
+
+    private static final RedisStrictCommand<Long> ZDIFFSTORE = new RedisStrictCommand<>("ZDIFFSTORE");
+
+    @Override
+    public Long zDiffStore(byte[] destKey, byte[]... sets) {
+        Assert.notNull(destKey, "Key must not be null!");
+
+        List<Object> args = new ArrayList<>(sets.length + 2);
+        args.add(destKey);
+        args.add(sets.length);
+        args.addAll(Arrays.asList(sets));
+
+        return write(destKey, LongCodec.INSTANCE, ZDIFFSTORE, args.toArray());
+    }
+
+    private static final RedisCommand<Set<Object>> ZINTER = new RedisCommand<>("ZINTER", new ObjectSetReplayDecoder<>());
+
+    @Override
+    public Set<byte[]> zInter(byte[]... sets) {
+        List<Object> args = new ArrayList<>(sets.length + 1);
+        args.add(sets.length);
+        args.addAll(Arrays.asList(sets));
+
+        return write(sets[0], ByteArrayCodec.INSTANCE, ZINTER, args.toArray());
+    }
+
+    private static final RedisCommand<Set<Tuple>> ZINTER_SCORE = new RedisCommand<>("ZINTER", new ScoredSortedSetReplayDecoder());
+
+    @Override
+    public Set<Tuple> zInterWithScores(Aggregate aggregate, Weights weights, byte[]... sets) {
+        List<Object> args = new ArrayList<>(sets.length * 2 + 6);
+        args.add(sets.length);
+        args.addAll(Arrays.asList(sets));
+        if (weights != null) {
+            args.add("WEIGHTS");
+            for (double weight : weights.toArray()) {
+                args.add(BigDecimal.valueOf(weight).toPlainString());
+            }
+        }
+        if (aggregate != null) {
+            args.add("AGGREGATE");
+            args.add(aggregate.name());
+        }
+        args.add("WITHSCORES");
+
+        return write(sets[0], ByteArrayCodec.INSTANCE, ZINTER_SCORE, args.toArray());
+    }
+
+    @Override
+    public Set<Tuple> zInterWithScores(byte[]... sets) {
+        return zInterWithScores(null, (Weights) null, sets);
+    }
+
+    private static final RedisCommand<Set<Object>> ZUNION = new RedisCommand<>("ZUNION", new ObjectSetReplayDecoder<>());
+
+    @Override
+    public Set<byte[]> zUnion(byte[]... sets) {
+        List<Object> args = new ArrayList<>(sets.length + 1);
+        args.add(sets.length);
+        args.addAll(Arrays.asList(sets));
+
+        return write(sets[0], ByteArrayCodec.INSTANCE, ZUNION, args.toArray());
+    }
+
+    private static final RedisCommand<Set<Tuple>> ZUNION_SCORE = new RedisCommand<>("ZUNION", new ScoredSortedSetReplayDecoder());
+
+    @Override
+    public Set<Tuple> zUnionWithScores(Aggregate aggregate, Weights weights, byte[]... sets) {
+        List<Object> args = new ArrayList<>(sets.length * 2 + 6);
+        args.add(sets.length);
+        args.addAll(Arrays.asList(sets));
+        if (weights != null) {
+            args.add("WEIGHTS");
+            for (double weight : weights.toArray()) {
+                args.add(BigDecimal.valueOf(weight).toPlainString());
+            }
+        }
+        if (aggregate != null) {
+            args.add("AGGREGATE");
+            args.add(aggregate.name());
+        }
+        args.add("WITHSCORES");
+
+        return write(sets[0], ByteArrayCodec.INSTANCE, ZUNION_SCORE, args.toArray());
+    }
+
+    @Override
+    public Set<Tuple> zUnionWithScores(byte[]... sets) {
+        return zUnionWithScores(null, (Weights) null, sets);
+    }
+
+    private static final RedisCommand<Object> HRANDFIELD = new RedisCommand<Object>("HRANDFIELD");
+
+    @Override
+    public byte[] hRandField(byte[] key) {
+        Assert.notNull(key, "Key must not be null!");
+
+        return read(key, ByteArrayCodec.INSTANCE, HRANDFIELD, (Object) key);
+    }
+
+    @Override
+    public Entry<byte[], byte[]> hRandFieldWithValues(byte[] key) {
+        Assert.notNull(key, "Key must not be null!");
+
+        return read(key, ByteArrayCodec.INSTANCE, RedisCommands.HRANDFIELD, (Object) key);
+    }
+
+    private static final RedisCommand<List<Object>> HRANDFIELD_LIST = new RedisCommand<>("HRANDFIELD", new ObjectListReplayDecoder<>());
+
+    @Override
+    public List<byte[]> hRandField(byte[] key, long count) {
+        Assert.notNull(key, "Key must not be null!");
+
+        return read(key, ByteArrayCodec.INSTANCE, HRANDFIELD_LIST, key, count);
+    }
+
+    @Override
+    public List<Entry<byte[], byte[]>> hRandFieldWithValues(byte[] key, long count) {
+        Assert.notNull(key, "Key must not be null!");
+
+        return read(key, ByteArrayCodec.INSTANCE, RedisCommands.HRANDFIELD, (Object) key, count);
+    }
+
+    @Override
+    public Boolean copy(byte[] sourceKey, byte[] targetKey, boolean replace) {
+        Assert.notNull(sourceKey, "Key must not be null!");
+        Assert.notNull(targetKey, "Target must not be null!");
+
+        List<Object> params = new ArrayList<>();
+        params.add(sourceKey);
+        params.add(targetKey);
+        if (replace) {
+            params.add("REPLACE");
+        }
+
+        return write(sourceKey, StringCodec.INSTANCE, RedisCommands.COPY, params.toArray());
+    }
+
+    @Override
+    public byte[] lMove(byte[] sourceKey, byte[] destinationKey, Direction from, Direction to) {
+        Assert.notNull(sourceKey, "Key must not be null!");
+        Assert.notNull(destinationKey, "Destination key must not be null!");
+        Assert.notNull(from, "From must not be null!");
+        Assert.notNull(from, "To must not be null!");
+
+        return write(sourceKey, ByteArrayCodec.INSTANCE, RedisCommands.LMOVE,
+                sourceKey, destinationKey, from, to);
+    }
+
+    @Override
+    public byte[] bLMove(byte[] sourceKey, byte[] destinationKey, Direction from, Direction to, double timeout) {
+        Assert.notNull(sourceKey, "Key must not be null!");
+        Assert.notNull(destinationKey, "Destination key must not be null!");
+        Assert.notNull(from, "From must not be null!");
+        Assert.notNull(to, "To must not be null!");
+        Assert.notNull(timeout, "Timeout must not be null!");
+
+        return write(sourceKey, ByteArrayCodec.INSTANCE, RedisCommands.BLMOVE,
+                sourceKey, destinationKey, from, to, destinationKey);
+    }
+
+    @Override
+    public List<byte[]> lPop(byte[] key, long count) {
+        Assert.notNull(key, "Key must not be null!");
+
+        return write(key, ByteArrayCodec.INSTANCE, RedisCommands.LPOP_LIST, key, count);
+    }
+
+    @Override
+    public List<byte[]> rPop(byte[] key, long count) {
+        Assert.notNull(key, "Key must not be null!");
+
+        return write(key, ByteArrayCodec.INSTANCE, RedisCommands.RPOP_LIST, key, count);
+    }
+
+    private static final RedisCommand<List<Boolean>> SMISMEMBER = new RedisCommand<>("SMISMEMBER", new ObjectListReplayDecoder<>());
+
+    @Override
+    public List<Boolean> sMIsMember(byte[] key, byte[]... value) {
+        Assert.notNull(key, "Key must not be null!");
+
+        List<Object> args = new ArrayList<>();
+        args.add(key);
+        args.addAll(Arrays.asList(value));
+
+        return read(key, StringCodec.INSTANCE, SMISMEMBER, args.toArray());
+    }
+
+    private static final RedisCommand<Object> GETEX = new RedisCommand<>("GETEX");
+
+    @Override
+    public byte[] getEx(byte[] key, Expiration expiration) {
+        Assert.notNull(key, "Key must not be null!");
+
+        return write(key, ByteArrayCodec.INSTANCE, GETEX, key,
+                "PX", expiration.getExpirationTimeInMilliseconds());
+    }
+
+    private static final RedisCommand<Object> GETDEL = new RedisCommand<>("GETDEL");
+
+    @Override
+    public byte[] getDel(byte[] key) {
+        Assert.notNull(key, "Key must not be null!");
+
+        return write(key, ByteArrayCodec.INSTANCE, GETDEL, key);
     }
 
 }

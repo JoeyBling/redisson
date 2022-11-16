@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -601,12 +601,13 @@ public class SentinelConnectionManager extends MasterSlaveConnectionManager {
         }
 
         CompletableFuture<Boolean> f = entry.slaveUpAsync(uri, FreezeReason.MANAGER);
-        return f.thenApply(v -> {
-            if (v) {
+        return f.thenCompose(e -> {
+            if (e) {
                 log.info("slave: {} is up", uri);
+                return entry.excludeMasterFromSlaves(uri);
             }
-            return null;
-        });
+            return CompletableFuture.completedFuture(e);
+        }).thenApply(e -> null);
     }
 
     private void slaveDown(RedisURI uri) {
@@ -614,9 +615,11 @@ public class SentinelConnectionManager extends MasterSlaveConnectionManager {
             log.warn("slave: {} is down", uri);
         } else {
             MasterSlaveEntry entry = getEntry(singleSlotRange.getStartSlot());
-            if (entry.slaveDown(uri, FreezeReason.MANAGER)) {
-                log.warn("slave: {} is down", uri);
-            }
+            entry.slaveDownAsync(uri, FreezeReason.MANAGER).thenAccept(r -> {
+                if (r) {
+                    log.warn("slave: {} is down", uri);
+                }
+            });
         }
     }
 

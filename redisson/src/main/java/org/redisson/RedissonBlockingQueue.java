@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,11 +23,13 @@ import org.redisson.client.protocol.RedisCommand;
 import org.redisson.client.protocol.RedisCommands;
 import org.redisson.command.CommandAsyncExecutor;
 import org.redisson.connection.decoder.ListDrainToDecoder;
+import org.redisson.misc.CompletableFutureWrapper;
 
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 /**
  * <p>Distributed and concurrent implementation of {@link java.util.concurrent.BlockingQueue}.
@@ -88,6 +90,9 @@ public class RedissonBlockingQueue<V> extends RedissonQueue<V> implements RBlock
 
     @Override
     public RFuture<V> pollAsync(long timeout, TimeUnit unit) {
+        if (timeout < 0) {
+            return new CompletableFutureWrapper<>((V) null);
+        }
         return commandExecutor.writeAsync(getRawName(), codec, RedisCommands.BLPOP_VALUE, getRawName(), toSeconds(timeout, unit));
     }
 
@@ -115,6 +120,10 @@ public class RedissonBlockingQueue<V> extends RedissonQueue<V> implements RBlock
      */
     @Override
     public RFuture<V> pollFromAnyAsync(long timeout, TimeUnit unit, String... queueNames) {
+        if (timeout < 0) {
+            return new CompletableFutureWrapper<>((V) null);
+        }
+
         return commandExecutor.pollFromAnyAsync(getRawName(), codec, RedisCommands.BLPOP_VALUE,
                                     toSeconds(timeout, unit), queueNames);
     }
@@ -126,11 +135,12 @@ public class RedissonBlockingQueue<V> extends RedissonQueue<V> implements RBlock
 
     @Override
     public RFuture<Map<String, List<V>>> pollFirstFromAnyAsync(Duration duration, int count, String... queueNames) {
+        List<String> mappedNames = Arrays.stream(queueNames).map(m -> commandExecutor.getConnectionManager().getConfig().getNameMapper().map(m)).collect(Collectors.toList());
         List<Object> params = new ArrayList<>();
         params.add(toSeconds(duration.getSeconds(), TimeUnit.SECONDS));
         params.add(queueNames.length + 1);
         params.add(getRawName());
-        params.addAll(Arrays.asList(queueNames));
+        params.addAll(mappedNames);
         params.add("LEFT");
         params.add("COUNT");
         params.add(count);
@@ -144,11 +154,12 @@ public class RedissonBlockingQueue<V> extends RedissonQueue<V> implements RBlock
 
     @Override
     public RFuture<Map<String, List<V>>> pollLastFromAnyAsync(Duration duration, int count, String... queueNames) {
+        List<String> mappedNames = Arrays.stream(queueNames).map(m -> commandExecutor.getConnectionManager().getConfig().getNameMapper().map(m)).collect(Collectors.toList());
         List<Object> params = new ArrayList<>();
         params.add(toSeconds(duration.getSeconds(), TimeUnit.SECONDS));
         params.add(queueNames.length + 1);
         params.add(getRawName());
-        params.addAll(Arrays.asList(queueNames));
+        params.addAll(mappedNames);
         params.add("RIGHT");
         params.add("COUNT");
         params.add(count);
@@ -157,7 +168,12 @@ public class RedissonBlockingQueue<V> extends RedissonQueue<V> implements RBlock
 
     @Override
     public RFuture<V> pollLastAndOfferFirstToAsync(String queueName, long timeout, TimeUnit unit) {
-        return commandExecutor.writeAsync(getRawName(), codec, RedisCommands.BRPOPLPUSH, getRawName(), queueName, toSeconds(timeout, unit));
+        if (timeout < 0) {
+            return new CompletableFutureWrapper<>((V) null);
+        }
+
+        String mappedName = commandExecutor.getConnectionManager().getConfig().getNameMapper().map(queueName);
+        return commandExecutor.writeAsync(getRawName(), codec, RedisCommands.BRPOPLPUSH, getRawName(), mappedName, toSeconds(timeout, unit));
     }
 
     @Override

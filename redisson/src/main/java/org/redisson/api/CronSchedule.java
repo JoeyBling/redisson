@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package org.redisson.api;
 import org.redisson.executor.CronExpression;
 
 import java.time.ZoneId;
+import java.util.TimeZone;
 
 /**
  * Cron expression object used in {@link RScheduledExecutorService}.
@@ -48,7 +49,7 @@ public final class CronSchedule {
      *             wrapping a ParseException if the expression is invalid
      */
     public static CronSchedule of(String expression) {
-        return new CronSchedule(new CronExpression(expression), ZoneId.systemDefault());
+        return of(expression, ZoneId.systemDefault());
     }
 
     /**
@@ -61,7 +62,9 @@ public final class CronSchedule {
      *             wrapping a ParseException if the expression is invalid
      */
     public static CronSchedule of(String expression, ZoneId zoneId) {
-        return new CronSchedule(new CronExpression(expression), zoneId);
+        CronExpression ce = new CronExpression(expression);
+        ce.setTimeZone(TimeZone.getTimeZone(zoneId));
+        return new CronSchedule(ce, zoneId);
     }
 
     /**

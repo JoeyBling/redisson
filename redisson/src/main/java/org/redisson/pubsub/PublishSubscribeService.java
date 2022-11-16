@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,12 +23,14 @@ import org.redisson.client.protocol.pubsub.PubSubType;
 import org.redisson.config.MasterSlaveServersConfig;
 import org.redisson.connection.ConnectionManager;
 import org.redisson.connection.MasterSlaveEntry;
+import org.redisson.misc.AsyncSemaphore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
@@ -195,7 +197,7 @@ public class PublishSubscribeService {
                     "Unable to acquire subscription lock after " + timeout + "ms. " +
                             "Try to increase 'timeout', 'subscriptionsPerConnection', 'subscriptionConnectionPoolSize' parameters."));
         }, timeout, TimeUnit.MILLISECONDS);
-        lock.acquire(() -> {
+        lock.acquire().thenAccept(r -> {
             if (!lockTimeout.cancel() || promise.isDone()) {
                 lock.release();
                 return;
@@ -255,7 +257,7 @@ public class PublishSubscribeService {
             return;
         }
 
-        freePubSubLock.acquire(() -> {
+        freePubSubLock.acquire().thenAccept(c -> {
             if (promise.isDone()) {
                 lock.release();
                 freePubSubLock.release();
@@ -388,7 +390,7 @@ public class PublishSubscribeService {
                 return;
             }
 
-            freePubSubLock.acquire(() -> {
+            freePubSubLock.acquire().thenAccept(c -> {
                 PubSubConnectionEntry entry = new PubSubConnectionEntry(conn, connectionManager);
                 int remainFreeAmount = entry.tryAcquire();
 
@@ -462,17 +464,17 @@ public class PublishSubscribeService {
             return CompletableFuture.completedFuture(null);
         }
 
-        CompletableFuture<Codec> result = new CompletableFuture<>();
         AsyncSemaphore lock = getSemaphore(channelName);
-        lock.acquire(() -> {
+        CompletableFuture<Void> f = lock.acquire();
+        return f.thenCompose(v -> {
             PubSubConnectionEntry entry = name2PubSubConnection.remove(new PubSubKey(channelName, e));
             if (entry == null) {
                 lock.release();
-                result.complete(null);
-                return;
+                return CompletableFuture.completedFuture(null);
             }
 
-            freePubSubLock.acquire(() -> {
+            CompletableFuture<Void> psf = freePubSubLock.acquire();
+            return psf.thenCompose(r -> {
                 PubSubEntry ee = entry2PubSubConnection.getOrDefault(e, new PubSubEntry());
                 Queue<PubSubConnectionEntry> freePubSubConnections = ee.getEntries();
                 freePubSubConnections.remove(entry);
@@ -487,6 +489,7 @@ public class PublishSubscribeService {
                     entryCodec = entry.getConnection().getChannels().get(channelName);
                 }
 
+                CompletableFuture<Codec> result = new CompletableFuture<>();
                 RedisPubSubListener<Object> listener = new BaseRedisPubSubListener() {
 
                     @Override
@@ -502,10 +505,9 @@ public class PublishSubscribeService {
                 };
 
                 entry.unsubscribe(topicType, channelName, listener);
+                return result;
             });
         });
-
-        return result;
     }
 
     private void addFreeConnectionEntry(ChannelName channelName, PubSubConnectionEntry entry) {
@@ -551,7 +553,7 @@ public class PublishSubscribeService {
                     continue;
                 }
 
-                freePubSubLock.acquire(() -> {
+                freePubSubLock.acquire().thenAccept(r -> {
                     e.getValue().getEntries().remove(entry);
                     freePubSubLock.release();
                 });
@@ -637,100 +639,77 @@ public class PublishSubscribeService {
     }
 
     public CompletableFuture<Void> removeListenerAsync(PubSubType type, ChannelName channelName, EventListener listener) {
-        CompletableFuture<Void> promise = new CompletableFuture<>();
-        AsyncSemaphore semaphore = getSemaphore(channelName);
-        semaphore.acquire(() -> {
-            Collection<MasterSlaveEntry> entries = Collections.singletonList(getEntry(channelName));
-            if (isMultiEntity(channelName)) {
-                entries = connectionManager.getEntrySet();
-            }
-
-            AtomicInteger counter = new AtomicInteger(entries.size());
-            for (MasterSlaveEntry e : entries) {
-                PubSubConnectionEntry entry = name2PubSubConnection.get(new PubSubKey(channelName, e));
-                if (entry == null) {
-                    if (counter.decrementAndGet() == 0) {
-                        semaphore.release();
-                        promise.complete(null);
-                    }
-                    continue;
-                }
-
-                entry.removeListener(channelName, listener);
-                if (!entry.hasListeners(channelName)) {
-                    unsubscribe(type, channelName)
-                        .whenComplete((r, ex) -> {
-                            if (counter.decrementAndGet() == 0) {
-                                semaphore.release();
-                                promise.complete(null);
-                            }
-                        });
-                } else {
-                    if (counter.decrementAndGet() == 0) {
-                        semaphore.release();
-                        promise.complete(null);
-                    }
-                }
-            }
+        return removeListenerAsync(type, channelName, entry -> {
+            entry.removeListener(channelName, listener);
         });
-        return promise;
     }
 
     public CompletableFuture<Void> removeListenerAsync(PubSubType type, ChannelName channelName, Integer... listenerIds) {
-        CompletableFuture<Void> promise = new CompletableFuture<>();
+        return removeListenerAsync(type, channelName, entry -> {
+            for (int id : listenerIds) {
+                entry.removeListener(channelName, id);
+            }
+        });
+    }
+
+    private CompletableFuture<Void> removeListenerAsync(PubSubType type, ChannelName channelName, Consumer<PubSubConnectionEntry> consumer) {
         AsyncSemaphore semaphore = getSemaphore(channelName);
-        semaphore.acquire(() -> {
-            Collection<MasterSlaveEntry> entries = Collections.singletonList(getEntry(channelName));
+        CompletableFuture<Void> sf = semaphore.acquire();
+        int timeout = config.getTimeout() + config.getRetryInterval() * config.getRetryAttempts();
+        connectionManager.newTimeout(t -> {
+            sf.completeExceptionally(new RedisTimeoutException("Remove listeners operation timeout: (" + timeout + "ms) for " + channelName + " topic"));
+        }, timeout, TimeUnit.MILLISECONDS);
+
+        return sf.thenCompose(res -> {
+            Collection<MasterSlaveEntry> entries;
             if (isMultiEntity(channelName)) {
                 entries = connectionManager.getEntrySet();
+            } else {
+                MasterSlaveEntry entry = getEntry(channelName);
+                if (entry == null) {
+                    semaphore.release();
+                    CompletableFuture<Void> f = new CompletableFuture<>();
+                    f.completeExceptionally(new IllegalStateException("Unable to find entry for channel: " + channelName));
+                    return f;
+                }
+                entries = Collections.singletonList(entry);
             }
 
-            AtomicInteger counter = new AtomicInteger(entries.size());
+            List<CompletableFuture<?>> futures = new ArrayList<>(entries.size());
             for (MasterSlaveEntry e : entries) {
                 PubSubConnectionEntry entry = name2PubSubConnection.get(new PubSubKey(channelName, e));
                 if (entry == null) {
-                    if (counter.decrementAndGet() == 0) {
-                        semaphore.release();
-                        promise.complete(null);
-                    }
+                    futures.add(CompletableFuture.completedFuture(null));
                     continue;
                 }
 
-                for (int id : listenerIds) {
-                    entry.removeListener(channelName, id);
-                }
+                consumer.accept(entry);
+
+                CompletableFuture<Void> f;
                 if (!entry.hasListeners(channelName)) {
-                    unsubscribe(type, channelName)
-                        .whenComplete((r, ex) -> {
-                            if (counter.decrementAndGet() == 0) {
-                                semaphore.release();
-                                promise.complete(null);
-                            }
-                        });
+                    f = unsubscribe(type, channelName)
+                                .exceptionally(ex -> null);
                 } else {
-                    if (counter.decrementAndGet() == 0) {
-                        semaphore.release();
-                        promise.complete(null);
-                    }
+                    f = CompletableFuture.completedFuture(null);
                 }
+                futures.add(f);
             }
+
+            CompletableFuture<Void> ff = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+            return ff.whenComplete((v, e) -> semaphore.release());
         });
-        return promise;
     }
 
     public CompletableFuture<Void> removeAllListenersAsync(PubSubType type, ChannelName channelName) {
         AsyncSemaphore semaphore = getSemaphore(channelName);
+
+        CompletableFuture<Void> sf = semaphore.acquire();
         int timeout = config.getTimeout() + config.getRetryInterval() * config.getRetryAttempts();
-
-        CompletableFuture<Void> res = new CompletableFuture<>();
         connectionManager.newTimeout(t -> {
-            res.completeExceptionally(new RedisTimeoutException("Remove listeners operation timeout: (" + timeout + "ms) for " + channelName + " topic"));
+            sf.completeExceptionally(new RedisTimeoutException("Remove listeners operation timeout: (" + timeout + "ms) for " + channelName + " topic"));
         }, timeout, TimeUnit.MILLISECONDS);
-        semaphore.acquire(() -> {
-            res.complete(null);
-        });
 
-        CompletableFuture<Void> f = res.thenCompose(r -> {
+        CompletableFuture<Void> f = sf.thenCompose(r -> {
             PubSubConnectionEntry entry = getPubSubEntry(channelName);
             if (entry == null) {
                 semaphore.release();

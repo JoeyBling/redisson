@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,22 +36,24 @@ public interface RedissonReactiveClient {
     /**
      * Returns time-series instance by <code>name</code>
      *
-     * @param <V> type of value
+     * @param <V> value type
+     * @param <L> label type
      * @param name - name of instance
      * @return RTimeSeries object
      */
-    <V> RTimeSeriesReactive<V> getTimeSeries(String name);
+    <V, L> RTimeSeriesReactive<V, L> getTimeSeries(String name);
 
     /**
      * Returns time-series instance by <code>name</code>
      * using provided <code>codec</code> for values.
      *
-     * @param <V> type of value
+     * @param <V> value type
+     * @param <L> label type
      * @param name - name of instance
      * @param codec - codec for values
      * @return RTimeSeries object
      */
-    <V> RTimeSeriesReactive<V> getTimeSeries(String name, Codec codec);
+    <V, L> RTimeSeriesReactive<V, L> getTimeSeries(String name, Codec codec);
 
     /**
      * Returns stream instance by <code>name</code>
@@ -543,6 +545,31 @@ public interface RedissonReactiveClient {
      * @return Map object
      */
     <K, V> RMapReactive<K, V> getMap(String name, Codec codec, MapOptions<K, V> options);
+
+    /**
+     * Returns local cached map instance by name.
+     * Configured by parameters of options-object.
+     *
+     * @param <K> type of key
+     * @param <V> type of value
+     * @param name - name of object
+     * @param options - local map options
+     * @return LocalCachedMap object
+     */
+    <K, V> RLocalCachedMapReactive<K, V> getLocalCachedMap(String name, LocalCachedMapOptions<K, V> options);
+
+    /**
+     * Returns local cached map instance by name
+     * using provided codec. Configured by parameters of options-object.
+     *
+     * @param <K> type of key
+     * @param <V> type of value
+     * @param name - name of object
+     * @param codec - codec for keys and values
+     * @param options - local map options
+     * @return LocalCachedMap object
+     */
+    <K, V> RLocalCachedMapReactive<K, V> getLocalCachedMap(String name, Codec codec, LocalCachedMapOptions<K, V> options);
 
     /**
      * Returns set instance by name.

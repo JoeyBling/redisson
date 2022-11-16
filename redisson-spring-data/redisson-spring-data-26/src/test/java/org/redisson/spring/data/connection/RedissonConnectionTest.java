@@ -73,6 +73,9 @@ public class RedissonConnectionTest extends BaseConnectionTest {
         RedisGeoCommands.GeoRadiusCommandArgs args = RedisGeoCommands.GeoRadiusCommandArgs.newGeoRadiusArgs().includeCoordinates();
         GeoResults<RedisGeoCommands.GeoLocation<String>> res = redisTemplate.opsForGeo().radius(key, within, args);
         assertThat(res.getContent().get(0).getContent().getName()).isEqualTo("a");
+
+        GeoResults<RedisGeoCommands.GeoLocation<String>> res2 = redisTemplate.opsForGeo().search(key, within);
+        assertThat(res2.getContent().size()).isEqualTo(1);
     }
 
     @Test
@@ -120,5 +123,14 @@ public class RedissonConnectionTest extends BaseConnectionTest {
         assertThat(t.next().getValue()).isEqualTo("value2".getBytes());
     }
 
+    @Test
+    public void testZPopMin() {
+        connection.zAdd("key".getBytes(), 1, "value1".getBytes());
+        connection.zAdd("key".getBytes(), 2, "value2".getBytes());
+
+        RedisZSetCommands.Tuple r = connection.zPopMin("key".getBytes());
+        assertThat(r.getValue()).isEqualTo("value1".getBytes());
+        assertThat(r.getScore()).isEqualTo(1);
+    }
     
 }

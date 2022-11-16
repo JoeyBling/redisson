@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -366,18 +366,15 @@ public class CommandAsyncService implements CommandAsyncExecutor {
     private static final Map<String, String> SHA_CACHE = new LRUCacheMap<>(500, 0, 0);
     
     private String calcSHA(String script) {
-        String digest = SHA_CACHE.get(script);
-        if (digest == null) {
+        return SHA_CACHE.computeIfAbsent(script, k -> {
             try {
                 MessageDigest mdigest = MessageDigest.getInstance("SHA-1");
                 byte[] s = mdigest.digest(script.getBytes());
-                digest = ByteBufUtil.hexDump(s);
-                SHA_CACHE.put(script, digest);
+                return ByteBufUtil.hexDump(s);
             } catch (Exception e) {
                 throw new IllegalStateException(e);
             }
-        }
-        return digest;
+        });
     }
     
     private Object[] copy(Object[] params) {
@@ -662,19 +659,20 @@ public class CommandAsyncService implements CommandAsyncExecutor {
 
     @Override
     public <V> RFuture<V> pollFromAnyAsync(String name, Codec codec, RedisCommand<?> command, long secondsTimeout, String... queueNames) {
+        List<String> mappedNames = Arrays.stream(queueNames).map(m -> connectionManager.getConfig().getNameMapper().map(m)).collect(Collectors.toList());
         if (connectionManager.isClusterMode() && queueNames.length > 0) {
             AtomicReference<Iterator<String>> ref = new AtomicReference<>();
             List<String> names = new ArrayList<>();
             names.add(name);
-            names.addAll(Arrays.asList(queueNames));
+            names.addAll(mappedNames);
             ref.set(names.iterator());
             AtomicLong counter = new AtomicLong(secondsTimeout);
             CompletionStage<V> result = poll(codec, ref, names, counter, command);
             return new CompletableFutureWrapper<>(result);
         } else {
-            List<Object> params = new ArrayList<Object>(queueNames.length + 1);
+            List<Object> params = new ArrayList<>(queueNames.length + 1);
             params.add(name);
-            params.addAll(Arrays.asList(queueNames));
+            params.addAll(mappedNames);
             params.add(secondsTimeout);
             return writeAsync(name, codec, command, params.toArray());
         }

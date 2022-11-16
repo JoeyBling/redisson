@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -118,6 +118,33 @@ public class RedissonJsonBucket<V> extends RedissonExpirable implements RJsonBuc
     }
 
     @Override
+    public boolean setIfAbsent(V value) {
+        return get(setIfAbsentAsync(value));
+    }
+
+    @Override
+    public boolean setIfAbsent(V value, Duration duration) {
+        return get(setIfAbsentAsync(value, duration));
+    }
+
+    @Override
+    public RFuture<Boolean> setIfAbsentAsync(V value) {
+        return setIfAbsentAsync("$", value);
+    }
+
+    @Override
+    public RFuture<Boolean> setIfAbsentAsync(V value, Duration duration) {
+        return commandExecutor.evalWriteAsync(getRawName(), codec, RedisCommands.EVAL_BOOLEAN,
+          "local currValue = redis.call('json.set', KEYS[1], '$', ARGV[1], 'NX'); " +
+                "if currValue ~= false then " +
+                    "redis.call('pexpire', KEYS[1], ARGV[2]); " +
+                    "return 1;" +
+                "end;" +
+                "return 0; ",
+        Collections.singletonList(getRawName()), encode(value), duration.toMillis());
+    }
+
+    @Override
     public boolean trySet(V value) {
         return get(trySetAsync(value));
     }
@@ -125,6 +152,20 @@ public class RedissonJsonBucket<V> extends RedissonExpirable implements RJsonBuc
     @Override
     public RFuture<Boolean> trySetAsync(V value) {
         return trySetAsync("$", value);
+    }
+
+    @Override
+    public boolean setIfAbsent(String path, Object value) {
+        return get(setIfAbsentAsync(path, value));
+    }
+
+    @Override
+    public RFuture<Boolean> setIfAbsentAsync(String path, Object value) {
+        if (value == null) {
+            return commandExecutor.readAsync(getRawName(), codec, RedisCommands.NOT_EXISTS, getRawName());
+        }
+
+        return commandExecutor.writeAsync(getRawName(), codec, RedisCommands.JSON_SET_BOOLEAN, getRawName(), path, encode(value), "NX");
     }
 
     @Override
@@ -210,23 +251,7 @@ public class RedissonJsonBucket<V> extends RedissonExpirable implements RJsonBuc
             return trySetAsync(update);
         }
 
-        if (update == null) {
-            return commandExecutor.evalWriteAsync(getRawName(), codec, RedisCommands.EVAL_BOOLEAN,
-                    "if redis.call('json.get', KEYS[1]) == ARGV[1] then "
-                            + "redis.call('json.del', KEYS[1]); "
-                            + "return 1 "
-                        + "else "
-                            + "return 0 end;",
-                    Collections.singletonList(getRawName()), encode(expect));
-        }
-
-        return commandExecutor.evalWriteAsync(getRawName(), codec, RedisCommands.EVAL_BOOLEAN,
-                "if redis.call('json.get', KEYS[1]) == ARGV[1] then "
-                        + "redis.call('json.set', KEYS[1], '$', ARGV[2]); "
-                        + "return 1 "
-                    + "else "
-                        + "return 0 end",
-                Collections.singletonList(getRawName()), encode(expect), encode(update));
+        return compareAndSetUpdateAsync("$", expect, update);
     }
 
     @Override
@@ -252,10 +277,14 @@ public class RedissonJsonBucket<V> extends RedissonExpirable implements RJsonBuc
             expect = Arrays.asList(expect);
         }
 
+        return compareAndSetUpdateAsync(path, expect, update);
+    }
+
+    protected RFuture<Boolean> compareAndSetUpdateAsync(String path, Object expect, Object update) {
         if (update == null) {
             return commandExecutor.evalWriteAsync(getRawName(), codec, RedisCommands.EVAL_BOOLEAN,
                     "if redis.call('json.get', KEYS[1], ARGV[1]) == ARGV[2] then "
-                            + "redis.call('json.del', KEYS[1]); "
+                            + "redis.call('json.del', KEYS[1], ARGV[1]); "
                             + "return 1 "
                         + "else "
                             + "return 0 end;",
@@ -742,7 +771,7 @@ public class RedissonJsonBucket<V> extends RedissonExpirable implements RJsonBuc
 
     @Override
     public RFuture<List<String>> getKeysAsync(String path) {
-        return commandExecutor.readAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.JSON_OBJKEYS, getRawName());
+        return commandExecutor.readAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.JSON_OBJKEYS, getRawName(), path);
     }
 
     @Override

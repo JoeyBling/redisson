@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package org.redisson.command;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelPromise;
+import io.netty.util.Timeout;
 import org.redisson.api.BatchOptions;
 import org.redisson.api.BatchOptions.ExecutionMode;
 import org.redisson.client.RedisConnection;
@@ -114,7 +115,7 @@ public class RedisCommonBatchExecutor extends RedisExecutor<Object, Void> {
         if (list.isEmpty()) {
             writeFuture = connection.getChannel().newPromise();
             attemptPromise.complete(null);
-            timeout.cancel();
+            timeout.ifPresent(Timeout::cancel);
             return;
         }
 

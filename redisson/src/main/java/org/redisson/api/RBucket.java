@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -50,16 +50,17 @@ public interface RBucket<V> extends RExpirable, RBucketAsync<V> {
     V getAndDelete();
 
     /**
-     * Tries to set element atomically into empty holder.
-     * 
+     * Use {@link #setIfAbsent(Object)} instead
+     *
      * @param value - value to set
      * @return {@code true} if successful, or {@code false} if
      *         element was already set
      */
+    @Deprecated
     boolean trySet(V value);
 
     /**
-     * Tries to set element atomically into empty holder with defined <code>timeToLive</code> interval.
+     * Use {@link #setIfAbsent(Object, Duration)} instead
      * 
      * @param value - value to set
      * @param timeToLive - time to live interval
@@ -67,10 +68,30 @@ public interface RBucket<V> extends RExpirable, RBucketAsync<V> {
      * @return {@code true} if successful, or {@code false} if
      *         element was already set
      */
+    @Deprecated
     boolean trySet(V value, long timeToLive, TimeUnit timeUnit);
 
     /**
-     * Sets value only if it's already exists.
+     * Sets value only if object holder doesn't exist.
+     *
+     * @param value - value to set
+     * @return {@code true} if successful, or {@code false} if
+     *         element was already set
+     */
+    boolean setIfAbsent(V value);
+
+    /**
+     * Sets value with defined duration only if object holder doesn't exist.
+     *
+     * @param value value to set
+     * @param duration expiration duration
+     * @return {@code true} if successful, or {@code false} if
+     *         element was already set
+     */
+    boolean setIfAbsent(V value, Duration duration);
+
+    /**
+     * Sets value only if object holder already exists.
      *
      * @param value - value to set
      * @return {@code true} if successful, or {@code false} if
@@ -79,7 +100,7 @@ public interface RBucket<V> extends RExpirable, RBucketAsync<V> {
     boolean setIfExists(V value);
 
     /**
-     * Sets value only if it's already exists.
+     * Sets value only if object holder already exists.
      *
      * @param value - value to set
      * @param timeToLive - time to live interval

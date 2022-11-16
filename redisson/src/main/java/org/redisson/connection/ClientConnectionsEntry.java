@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ import org.redisson.client.RedisConnection;
 import org.redisson.client.RedisPubSubConnection;
 import org.redisson.client.protocol.RedisCommand;
 import org.redisson.config.ReadMode;
-import org.redisson.pubsub.AsyncSemaphore;
+import org.redisson.misc.AsyncSemaphore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,7 +31,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 
@@ -57,8 +56,6 @@ public class ClientConnectionsEntry {
 
     private volatile NodeType nodeType;
     private final ConnectionManager connectionManager;
-
-    private final AtomicLong firstFailTime = new AtomicLong(0);
 
     private volatile boolean initialized = false;
 
@@ -105,18 +102,18 @@ public class ClientConnectionsEntry {
     }
 
     public void resetFirstFail() {
-        firstFailTime.set(0);
+        client.resetFirstFail();
     }
 
     public boolean isFailed() {
-        if (firstFailTime.get() != 0) {
-            return System.currentTimeMillis() - firstFailTime.get() > connectionManager.getConfig().getFailedSlaveCheckInterval(); 
+        if (client.getFirstFailTime() != 0) {
+            return System.currentTimeMillis() - client.getFirstFailTime() > connectionManager.getConfig().getFailedSlaveCheckInterval();
         }
         return false;
     }
     
     public void trySetupFistFail() {
-        firstFailTime.compareAndSet(0, System.currentTimeMillis());
+        client.trySetupFirstFail();
     }
 
     public CompletableFuture<Void> shutdownAsync() {
@@ -277,7 +274,7 @@ public class ClientConnectionsEntry {
                 + ", freeSubscribeConnectionsCounter=" + freeSubscribeConnectionsCounter
                 + ", freeConnectionsAmount=" + freeConnections.size() + ", freeConnectionsCounter="
                 + freeConnectionsCounter + ", freezeReason=" + freezeReason
-                + ", client=" + client + ", nodeType=" + nodeType + ", firstFail=" + firstFailTime
+                + ", client=" + client + ", nodeType=" + nodeType + ", firstFail=" + client.getFirstFailTime()
                 + "]";
     }
 

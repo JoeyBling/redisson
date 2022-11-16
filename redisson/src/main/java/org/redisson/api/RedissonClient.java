@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,22 +38,24 @@ public interface RedissonClient {
     /**
      * Returns time-series instance by <code>name</code>
      *
-     * @param <V> type of value
+     * @param <V> value type
+     * @param <L> label type
      * @param name - name of instance
      * @return RTimeSeries object
      */
-    <V> RTimeSeries<V> getTimeSeries(String name);
+    <V, L> RTimeSeries<V, L> getTimeSeries(String name);
 
     /**
      * Returns time-series instance by <code>name</code>
      * using provided <code>codec</code> for values.
      *
-     * @param <V> type of value
+     * @param <V> value type
+     * @param <L> label type
      * @param name - name of instance
      * @param codec - codec for values
      * @return RTimeSeries object
      */
-    <V> RTimeSeries<V> getTimeSeries(String name, Codec codec);
+    <V, L> RTimeSeries<V, L> getTimeSeries(String name, Codec codec);
 
     /**
      * Returns stream instance by <code>name</code>

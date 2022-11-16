@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -292,8 +292,8 @@ public class AsyncRemoteProxy extends BaseRemoteProxy {
                     return executeCancel(mayInterruptIfRunning);
                 }
 
-                boolean removed = commandExecutor.get(remoteService.removeAsync(requestQueueName, requestId));
-                if (removed) {
+                Boolean removed = commandExecutor.get(remoteService.removeAsync(requestQueueName, requestId));
+                if (removed == null || removed) {
                     super.cancel(mayInterruptIfRunning);
                     return true;
                 }
@@ -370,7 +370,7 @@ public class AsyncRemoteProxy extends BaseRemoteProxy {
 
         CompletableFuture<Boolean> removeFuture = remoteService.removeAsync(requestQueueName, requestId);
         return removeFuture.thenCompose(removed -> {
-            if (removed) {
+            if (removed == null || removed) {
                 promise.doCancel(mayInterruptIfRunning);
             }
 

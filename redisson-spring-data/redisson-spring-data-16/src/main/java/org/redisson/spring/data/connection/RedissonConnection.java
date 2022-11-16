@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1765,7 +1765,9 @@ public class RedissonConnection extends AbstractRedisConnection {
         params.add(script);
         params.add(numKeys);
         params.addAll(Arrays.asList(keysAndArgs));
-        return write(null, ByteArrayCodec.INSTANCE, c, params.toArray());
+
+        byte[] key = getKey(numKeys, keysAndArgs);
+        return write(key, ByteArrayCodec.INSTANCE, c, params.toArray());
     }
 
     protected RedisCommand<?> toCommand(ReturnType returnType, String name) {
@@ -1800,7 +1802,9 @@ public class RedissonConnection extends AbstractRedisConnection {
         params.add(scriptSha);
         params.add(numKeys);
         params.addAll(Arrays.asList(keysAndArgs));
-        return write(null, ByteArrayCodec.INSTANCE, c, params.toArray());
+
+        byte[] key = getKey(numKeys, keysAndArgs);
+        return write(key, ByteArrayCodec.INSTANCE, c, params.toArray());
     }
 
     @Override
@@ -1810,7 +1814,16 @@ public class RedissonConnection extends AbstractRedisConnection {
         params.add(scriptSha);
         params.add(numKeys);
         params.addAll(Arrays.asList(keysAndArgs));
-        return write(null, ByteArrayCodec.INSTANCE, c, params.toArray());
+
+        byte[] key = getKey(numKeys, keysAndArgs);
+        return write(key, ByteArrayCodec.INSTANCE, c, params.toArray());
+    }
+
+    private static byte[] getKey(int numKeys, byte[][] keysAndArgs) {
+        if (numKeys > 0 && keysAndArgs.length > 0) {
+            return keysAndArgs[0];
+        }
+        return null;
     }
 
     private static final RedisCommand<Long> PFADD = new RedisCommand<Long>("PFADD");

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,18 +37,38 @@ public interface RBucketReactive<V> extends RExpirableReactive {
      * @return object size
      */
     Mono<Long> size();
-    
+
     /**
-     * Tries to set element atomically into empty holder.
+     * Sets value only if object holder doesn't exist.
+     *
+     * @param value - value to set
+     * @return {@code true} if successful, or {@code false} if
+     *         element was already set
+     */
+    Mono<Boolean> setIfAbsent(V value);
+
+    /**
+     * Sets value with defined duration only if object holder doesn't exist.
+     *
+     * @param value value to set
+     * @param duration expiration duration
+     * @return {@code true} if successful, or {@code false} if
+     *         element was already set
+     */
+    Mono<Boolean> setIfAbsent(V value, Duration duration);
+
+    /**
+     * Use {@link #setIfAbsent(Object)} instead
      * 
      * @param value - value to set
      * @return {@code true} if successful, or {@code false} if
      *         element was already set
      */
+    @Deprecated
     Mono<Boolean> trySet(V value);
 
     /**
-     * Tries to set element atomically into empty holder with defined <code>timeToLive</code> interval.
+     * Use {@link #setIfAbsent(Object, Duration)} instead
      * 
      * @param value - value to set
      * @param timeToLive - time to live interval
@@ -56,6 +76,7 @@ public interface RBucketReactive<V> extends RExpirableReactive {
      * @return {@code true} if successful, or {@code false} if
      *         element was already set
      */
+    @Deprecated
     Mono<Boolean> trySet(V value, long timeToLive, TimeUnit timeUnit);
 
     /**

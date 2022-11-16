@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -460,17 +460,17 @@ public class RedissonReactive implements RedissonReactiveClient {
     }
 
     @Override
-    public <V> RTimeSeriesReactive<V> getTimeSeries(String name) {
-        RTimeSeries<V> timeSeries = new RedissonTimeSeries<V>(evictionScheduler, commandExecutor, name);
+    public <V, L> RTimeSeriesReactive<V, L> getTimeSeries(String name) {
+        RTimeSeries<V, L> timeSeries = new RedissonTimeSeries<V, L>(evictionScheduler, commandExecutor, name);
         return ReactiveProxyBuilder.create(commandExecutor, timeSeries,
-                new RedissonTimeSeriesReactive<V>(timeSeries, this), RTimeSeriesReactive.class);
+                new RedissonTimeSeriesReactive<V, L>(timeSeries, this), RTimeSeriesReactive.class);
     }
 
     @Override
-    public <V> RTimeSeriesReactive<V> getTimeSeries(String name, Codec codec) {
-        RTimeSeries<V> timeSeries = new RedissonTimeSeries<V>(codec, evictionScheduler, commandExecutor, name);
+    public <V, L> RTimeSeriesReactive<V, L> getTimeSeries(String name, Codec codec) {
+        RTimeSeries<V, L> timeSeries = new RedissonTimeSeries<V, L>(codec, evictionScheduler, commandExecutor, name);
         return ReactiveProxyBuilder.create(commandExecutor, timeSeries,
-                new RedissonTimeSeriesReactive<V>(timeSeries, this), RTimeSeriesReactive.class);
+                new RedissonTimeSeriesReactive<V, L>(timeSeries, this), RTimeSeriesReactive.class);
     }
 
     @Override
@@ -622,6 +622,22 @@ public class RedissonReactive implements RedissonReactiveClient {
         RMap<K, V> map = new RedissonMap<>(codec, commandExecutor, name, null, options, writeBehindService);
         return ReactiveProxyBuilder.create(commandExecutor, map,
                 new RedissonMapReactive<>(map, commandExecutor), RMapReactive.class);
+    }
+
+    @Override
+    public <K, V> RLocalCachedMapReactive<K, V> getLocalCachedMap(String name, LocalCachedMapOptions<K, V> options) {
+        RMap<K, V> map = new RedissonLocalCachedMap<>(commandExecutor, name,
+                                                        options, evictionScheduler, null, writeBehindService);
+        return ReactiveProxyBuilder.create(commandExecutor, map,
+                new RedissonMapReactive<>(map, commandExecutor), RLocalCachedMapReactive.class);
+    }
+
+    @Override
+    public <K, V> RLocalCachedMapReactive<K, V> getLocalCachedMap(String name, Codec codec, LocalCachedMapOptions<K, V> options) {
+        RMap<K, V> map = new RedissonLocalCachedMap<>(codec, commandExecutor, name,
+                                                        options, evictionScheduler, null, writeBehindService);
+        return ReactiveProxyBuilder.create(commandExecutor, map,
+                new RedissonMapReactive<>(map, commandExecutor), RLocalCachedMapReactive.class);
     }
 
     @Override

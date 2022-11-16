@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2021 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -76,6 +76,11 @@ public class CommandReactiveBatchService extends CommandReactiveService {
 
     public RFuture<BatchResult<?>> executeAsync() {
         return batchService.executeAsync();
+    }
+
+    @Override
+    protected boolean isEvalCacheActive() {
+        return false;
     }
 
     public RFuture<Void> discardAsync() {

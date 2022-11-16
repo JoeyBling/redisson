@@ -3,6 +3,85 @@ Redisson Releases History
 
 Try __[Redisson PRO](https://redisson.pro)__ with **ultra-fast performance** and **support by SLA**.
 
+### 11-Nov-2022 - 3.18.0 released
+
+Feature - Tomcat 10.1.x support  
+Feature - labels support for RTimeSeries object  
+Feature - compatibility with Spring Boot 3 (thanks @olivierboudet)  
+Feature - RxJava and Reactive interfaces for RLocalCachedMap object  
+Feature - local cache support for JsonBucket object  
+
+Improvement - StringCodec now implements JsonCodec  
+
+Fixed - `RDoubleAdder` and `RLongAdder` objects don't work with `nameMapper`  
+Fixed - `RBlockingQueue` methods should return null if negative timeout defined  
+Fixed - `RLocalCachedMap.clearLocalCacheAsync()` method shouldn't retain semaphore after invocation  
+Fixed - Spring Data Redis methods weren't implemented: `zRandMember()`, `zRandMemberWithScore()`, `zPopMin()`, `bZPopMin()`, `zPopMax()`, `bZPopMax()`, `zMScore()`, `zDiff()`, `zDiffWithScores()`, `zDiffStore()`, `zInter()`, `zInterWithScores()`, `zUnion()`, `zUnionWithScores()`, `hRandField()`, `hRandFieldWithValues()`, `copy()`, `lMove()`, `bLMove()`, `lPop()`, `rPop()`, `sMIsMember()`, `getEx()`, `getDel()`  
+Fixed - attempts to connect to the failed master after failover in cluster mode  
+Fixed - `RMapCache` `MapEntryListener` doesn't work with `nameMapper`  
+Fixed - `RJsonBucket.getKeys()` method doesn't use path parameter  
+Fixed - `RRateLimiter.getConfig().getRate()` throws NPE if it doesn't exist (thanks @Tanky-Zhang)  
+Fixed - `RTransaction` objects should be the same instances on each "get..." call  
+Fixed - `RScheduledExecutorService` cron triggers fire continuously for hours for some time zones (regression since 3.16.5)  
+Fixed - `RSortedSet.add()` throws NPE (thanks @yuwei)  
+Fixed - `RKeysReactive.getKeysByPattern()` method isn't giving all entries if downstream consumer is slow  
+Fixed - "Unable to unfreeze entry" errors in sentinel mode  
+Fixed - `JsonBucket.compareAndSet()` method with null as update value deletes whole object  
+Fixed - Redis Cluster topology scanned partially in case of DNS resolution error  
+Fixed - Slave nodes failed to pass complete initialization shouldn't be added as nodes  
+Fixed - ByteBuf leaks when one of multiple parameters can't be encoded  
+Fixed - `SearchDomainUnknownHostException` is thrown occasionally  
+
+### 2-Oct-2022 - 3.17.7 released
+
+Improvement - Failed connection ping isn't taken in account in Redis slave health check  
+
+Fixed - RScheduledExecutorService cron expression doesn't support year  
+Fixed - `replaceValues()` method of `RListMultimap` and `RSetMultimap` throws exception for empty collection  
+Fixed - RedissonBaseLock throws NPE after failover  
+Fixed - Spring Data Redis `evalsha()` method doesn't use key for Redis node routing in Cluster mode  
+Fixed - DNS change isn't detected in replicated mode  
+Fixed - `RCollectionReactive.addAll()` method is executed without subscription  
+Fixed - `RKeysAsync.countExists()` method throws errors in cluster mode  
+Fixed - Spring Data Redis reactive setIfAbsent should return `false` on error (thanks @zhuangzibin)  
+Fixed - Micronaut native image configuration  
+Fixed - RBatchReactive execution stuck forever if `useScriptCache = true`  
+Fixed - NameMapper is applied incorrectly to RBoundedBlockingQueue object  
+Fixed - incorrect IPv6 conversion  
+Fixed - Spring Boot Module ignores username parameter set via Spring Redis config  
+Fixed - SpringBoot yaml configuration parsing errors shouldn't be suppressed  
+
+### 24-Aug-2022 - 3.17.6 released
+
+Feature - Helidon 3.0 support  
+Feature - ability to specify `MapWriterAsync` and `MapLoaderAsync` in `MapOptions` object  
+
+Improvement - log output string expanded to 1000 characters by default
+
+Fixed - `RBuckets` methods don't use `nameMapper`  
+Fixed - PingConnectionHandler should close channel on RedisLoadingException, RedisTryAgainException, RedisClusterDownException, RedisBusyException  
+Fixed - Invocation timeout isn't applied for `RTopic.removeListenerAsync()` methods  
+Fixed - `WriteBehind` task isn't stopped after `RMap.destroy()` method invocation  
+Fixed - Connection pinging works incorrectly if new connections were created in pool  
+Fixed - "SlaveConnectionPool no available Redis entries" error occurs in Cluster caused by early excluding of master node from nodes for reading  
+Fixed - Permanent blocking calling threads  
+
+### 22-July-2022 - 3.17.5 released
+
+Feature - `touch()`, `unlink()` and `delete()` methods implemented for transactional `RSetCache` and `RSet` objects  
+Feature - transactional `RBucket`, `RMap`, `RMapCache`, `RSetCache`, `RSet` objects support `expire()`, `expireAt()` and `clearExpire()` methods  
+Feature - `ExecutorOptions.idGenerator()` setting added  
+Feature - methods with task id added to RExecutorService interface  
+
+Fixed - duplicate subscriptions with RedisMessageListenerContainer in Spring Data Redis 2.7  
+Fixed - `NameMapper` applied twice to transactional `RBucket`  
+Fixed - some Quarkus environment variables clear all Redisson properties set through config file  
+Fixed - `RJsonBucket.delete()` method doesn't work  
+Fixed - `RExecutorService.submitAsync(Callable, long, TimeUnit)` method throws ClassCastException (thanks @xyqshi)
+Fixed - Lock synced slaves check  
+Fixed - reactive scripting commands throw ClassCastException if result is list of list  
+Fixed - `RBatch.getJsonBucket()` method should return RJsonBucketAsync interface  
+
 ### 16-June-2022 - 3.17.4 released
 
 Feature - [RJsonBucket](https://github.com/redisson/redisson/wiki/6.-distributed-objects/#615-json-object-holder) object added for `JSON.*` commands support  

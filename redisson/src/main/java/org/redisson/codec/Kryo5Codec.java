@@ -16,20 +16,30 @@
 package org.redisson.codec;
 
 import com.esotericsoftware.kryo.Kryo;
+import com.esotericsoftware.kryo.KryoException;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
+import com.esotericsoftware.kryo.serializers.DefaultSerializers;
 import com.esotericsoftware.kryo.serializers.JavaSerializer;
 import com.esotericsoftware.kryo.util.Pool;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.ByteBufInputStream;
 import io.netty.buffer.ByteBufOutputStream;
+import org.objenesis.instantiator.ObjectInstantiator;
+import org.objenesis.strategy.StdInstantiatorStrategy;
 import org.redisson.client.codec.BaseCodec;
 import org.redisson.client.handler.State;
 import org.redisson.client.protocol.Decoder;
 import org.redisson.client.protocol.Encoder;
 
 import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.net.URI;
+import java.util.UUID;
+import java.util.regex.Pattern;
+
+import static com.esotericsoftware.kryo.util.Util.className;
 
 /**
  * Kryo 5 codec
@@ -40,6 +50,38 @@ import java.io.IOException;
  *
  */
 public class Kryo5Codec extends BaseCodec {
+
+    private static class SimpleInstantiatorStrategy implements org.objenesis.strategy.InstantiatorStrategy {
+
+        private final StdInstantiatorStrategy ss = new StdInstantiatorStrategy();
+
+        @Override
+        public <T> ObjectInstantiator<T> newInstantiatorOf(Class<T> type) {
+            // Reflection.
+            try {
+                Constructor ctor;
+                try {
+                    ctor = type.getConstructor((Class[]) null);
+                } catch (Exception ex) {
+                    ctor = type.getDeclaredConstructor((Class[]) null);
+                    ctor.setAccessible(true);
+                }
+                final Constructor constructor = ctor;
+                return new ObjectInstantiator() {
+                    public Object newInstance() {
+                        try {
+                            return constructor.newInstance();
+                        } catch (Exception ex) {
+                            throw new KryoException("Error constructing instance of class: " + className(type), ex);
+                        }
+                    }
+                };
+            } catch (Exception ignored) {
+            }
+
+            return ss.newInstantiatorOf(type);
+        }
+    }
 
     private final Pool<Kryo> kryoPool;
     private final Pool<Input> inputPool;
@@ -82,9 +124,13 @@ public class Kryo5Codec extends BaseCodec {
         if (classLoader != null) {
             kryo.setClassLoader(classLoader);
         }
+        kryo.setInstantiatorStrategy(new SimpleInstantiatorStrategy());
         kryo.setRegistrationRequired(false);
         kryo.setReferences(false);
         kryo.addDefaultSerializer(Throwable.class, new JavaSerializer());
+        kryo.addDefaultSerializer(UUID.class, new DefaultSerializers.UUIDSerializer());
+        kryo.addDefaultSerializer(URI.class, new DefaultSerializers.URISerializer());
+        kryo.addDefaultSerializer(Pattern.class, new DefaultSerializers.PatternSerializer());
         return kryo;
     }
 

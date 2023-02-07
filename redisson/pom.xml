@@ -4,7 +4,7 @@
     <parent>
         <groupId>org.redisson</groupId>
         <artifactId>redisson-parent</artifactId>
-        <version>3.18.1-SNAPSHOT</version>
+        <version>3.19.4-SNAPSHOT</version>
         <relativePath>../</relativePath>
     </parent>
 
@@ -126,6 +126,11 @@
             <artifactId>logback-classic</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
 
         <dependency>
             <groupId>org.apache.tomcat.embed</groupId>
@@ -154,25 +159,29 @@
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-test</artifactId>
-            <version>[4.1,)</version>
+            <!-- 4.1+ -->
+            <version>6.0.3</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-core</artifactId>
-            <version>[4.1,)</version>
+            <!-- 4.1+ -->
+            <version>6.0.3</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-expression</artifactId>
-            <version>[4.1,)</version>
+            <!-- 4.1+ -->
+            <version>6.0.3</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-webflux</artifactId>
-            <version>[4.1,)</version>
+            <!-- 4.1+ -->            
+            <version>6.0.3</version>
             <scope>test</scope>
         </dependency>
 
@@ -187,11 +196,19 @@
             <groupId>org.jboss.marshalling</groupId>
             <artifactId>jboss-marshalling</artifactId>
             <version>2.0.11.Final</version>
+<!--
+            <scope>provided</scope>
+            <optional>true</optional>
+-->
         </dependency>
         <dependency>
             <groupId>org.jboss.marshalling</groupId>
             <artifactId>jboss-marshalling-river</artifactId>
             <version>2.0.11.Final</version>
+<!--
+            <scope>provided</scope>
+            <optional>true</optional>
+-->
         </dependency>
         <dependency>
             <groupId>org.msgpack</groupId>
@@ -213,13 +230,17 @@
             <version>2.57</version>
             <scope>provided</scope>
             <optional>true</optional>
+            <exclusions>
+              <exclusion>
+                 <groupId>org.objenesis</groupId>
+                 <artifactId>objenesis</artifactId>
+              </exclusion>
+            </exclusions> 
         </dependency>
         <dependency>
             <groupId>com.esotericsoftware</groupId>
             <artifactId>kryo</artifactId>
-            <version>5.3.0</version>
-            <scope>provided</scope>
-            <optional>true</optional>
+            <version>5.4.0</version>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
@@ -297,28 +318,32 @@
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-context</artifactId>
-            <version>[4.1,)</version>
+            <!-- 4.1+ -->
+            <version>6.0.3</version>
             <scope>provided</scope>
             <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-beans</artifactId>
-            <version>[4.1,)</version>
+            <!-- 4.1+ -->
+            <version>6.0.3</version>
             <scope>provided</scope>
             <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-context-support</artifactId>
-            <version>[4.1,)</version>
+            <!-- 4.1+ -->
+            <version>6.0.3</version>
             <scope>provided</scope>
             <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-web</artifactId>
-            <version>[4.1,)</version>
+            <!-- 4.1+ -->
+            <version>6.0.3</version>
             <scope>provided</scope>
             <optional>true</optional>
         </dependency>
@@ -326,7 +351,8 @@
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-tx</artifactId>
-            <version>[4.1,)</version>
+            <!-- 4.1+ -->
+            <version>6.0.3</version>
             <scope>provided</scope>
             <optional>true</optional>
         </dependency>
@@ -334,7 +360,8 @@
         <dependency>
             <groupId>org.springframework.session</groupId>
             <artifactId>spring-session-core</artifactId>
-            <version>[2.0.0,)</version>
+            <!-- 2.0.0+ -->
+            <version>3.0.0</version>
             <scope>provided</scope>
             <optional>true</optional>
         </dependency>
@@ -342,21 +369,23 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-actuator</artifactId>
-            <version>[2.0.0,)</version>
+            <!-- 2.0.0+ -->
+            <version>3.0.2</version>
             <scope>provided</scope>
             <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure</artifactId>
-            <version>[2.0.0,)</version>
+            <!-- 2.0.0+ -->
+            <version>3.0.2</version>
             <scope>provided</scope>
             <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-core</artifactId>
-            <version>[1.0.1,)</version>
+            <version>1.10.3</version>
             <scope>provided</scope>
             <optional>true</optional>
         </dependency>

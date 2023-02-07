@@ -133,20 +133,23 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
     
     private final Map<RedisURI, RedisConnection> nodeConnections = new ConcurrentHashMap<>();
     
-    public MasterSlaveConnectionManager(MasterSlaveServersConfig cfg, Config config, UUID id) {
+    public MasterSlaveConnectionManager(BaseMasterSlaveServersConfig<?> cfg, Config config, UUID id) {
         this(config, id);
-        this.config = cfg;
 
-        if (cfg.getSlaveAddresses().isEmpty()
-                && (cfg.getReadMode() == ReadMode.SLAVE || cfg.getReadMode() == ReadMode.MASTER_SLAVE)) {
-            throw new IllegalArgumentException("Slaves aren't defined. readMode can't be SLAVE or MASTER_SLAVE");
+        if (cfg instanceof MasterSlaveServersConfig) {
+            this.config = (MasterSlaveServersConfig) cfg;
+            if (this.config.getSlaveAddresses().isEmpty()
+                    && (this.config.getReadMode() == ReadMode.SLAVE || this.config.getReadMode() == ReadMode.MASTER_SLAVE)) {
+                throw new IllegalArgumentException("Slaves aren't defined. readMode can't be SLAVE or MASTER_SLAVE");
+            }
+        } else {
+            this.config = create(cfg);
         }
 
-        initTimer(cfg);
-        initSingleEntry();
+        initTimer();
     }
 
-    protected MasterSlaveConnectionManager(Config cfg, UUID id) {
+    private MasterSlaveConnectionManager(Config cfg, UUID id) {
         this.id = id.toString();
         Version.logVersion();
 
@@ -302,7 +305,7 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
         return Collections.emptyList();
     }
     
-    protected void initTimer(MasterSlaveServersConfig config) {
+    private void initTimer() {
         int[] timeouts = new int[]{config.getRetryInterval(), config.getTimeout()};
         Arrays.sort(timeouts);
         int minTimeout = timeouts[0];
@@ -316,11 +319,11 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
         
         timer = new HashedWheelTimer(new DefaultThreadFactory("redisson-timer"), minTimeout, TimeUnit.MILLISECONDS, 1024, false);
         
-        connectionWatcher = new IdleConnectionWatcher(this, config);
-        subscribeService = new PublishSubscribeService(this, config);
+        connectionWatcher = new IdleConnectionWatcher(this);
+        subscribeService = new PublishSubscribeService(this);
     }
 
-    protected void initSingleEntry() {
+    public void connect() {
         try {
             if (config.checkSkipSlavesInit()) {
                 masterSlaveEntry = new SingleEntry(this, config);
@@ -402,6 +405,7 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
         c.setKeepAlive(cfg.isKeepAlive());
         c.setTcpNoDelay(cfg.isTcpNoDelay());
         c.setNameMapper(cfg.getNameMapper());
+        c.setCredentialsResolver(cfg.getCredentialsResolver());
 
         return c;
     }
@@ -456,8 +460,9 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
               .setTcpNoDelay(config.isTcpNoDelay())
               .setUsername(config.getUsername())
               .setPassword(config.getPassword())
-              .setNettyHook(cfg.getNettyHook());
-        
+              .setNettyHook(cfg.getNettyHook())
+              .setCredentialsResolver(config.getCredentialsResolver());
+
         if (type != NodeType.SENTINEL) {
             redisConfig.setDatabase(config.getDatabase());
         }
@@ -514,8 +519,8 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
             return f;
         }
         // fix for https://github.com/redisson/redisson/issues/1548
-        if (source.getRedirect() != null 
-                && !RedisURI.compare(entry.getClient().getAddr(), source.getAddr()) 
+        if (source.getRedirect() != null
+                && !source.getAddr().equals(entry.getClient().getAddr())
                     && entry.hasSlave(source.getAddr())) {
             return entry.redirectedConnectionWriteOp(command, source.getAddr());
         }
@@ -570,7 +575,7 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
     public void releaseWrite(NodeSource source, RedisConnection connection) {
         MasterSlaveEntry entry = getEntry(source);
         if (entry == null) {
-            log.error("Node: " + source + " can't be found");
+            log.error("Node: {} can't be found", source);
         } else {
             entry.releaseWrite(connection);
         }
@@ -580,7 +585,7 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
     public void releaseRead(NodeSource source, RedisConnection connection) {
         MasterSlaveEntry entry = getEntry(source);
         if (entry == null) {
-            log.error("Node: " + source + " can't be found");
+            log.error("Node: {} can't be found", source);
         } else {
             entry.releaseRead(connection);
         }
@@ -706,7 +711,7 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
         return resolveIP(address.getScheme(), address);
     }
 
-    protected CompletableFuture<RedisURI> resolveIP(String scheme, RedisURI address) {
+    protected final CompletableFuture<RedisURI> resolveIP(String scheme, RedisURI address) {
         if (address.isIP()) {
             RedisURI addr = toURI(scheme, address.getHost(), "" + address.getPort());
             return CompletableFuture.completedFuture(addr);
@@ -718,7 +723,7 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
         Future<InetSocketAddress> future = resolver.resolve(addr);
         future.addListener((FutureListener<InetSocketAddress>) f -> {
             if (!f.isSuccess()) {
-                log.error("Unable to resolve " + address, f.cause());
+                log.error("Unable to resolve {}", address, f.cause());
                 result.completeExceptionally(f.cause());
                 return;
             }
@@ -730,7 +735,7 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
         return result;
     }
 
-    protected RedisURI toURI(String scheme, String host, String port) {
+    protected final RedisURI toURI(String scheme, String host, String port) {
         // convert IPv6 address to unified compressed format
         if (NetUtil.isValidIpV6Address(host)) {
             byte[] addr = NetUtil.createByteArrayFromIpAddressString(host);

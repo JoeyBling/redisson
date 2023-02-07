@@ -200,7 +200,7 @@ public class RedissonMap<K, V> extends RedissonExpirable implements RMap<K, V> {
         RLock lock = getLock(key);
         long threadId = Thread.currentThread().getId();
         CompletionStage<V> f = lock.lockAsync(threadId).thenCompose(r -> {
-            RFuture<V> oldValueFuture = getAsync(key);
+            RFuture<V> oldValueFuture = getAsync(key, threadId);
             return oldValueFuture.thenCompose(oldValue -> {
                 CompletableFuture<V> newValuePromise = new CompletableFuture<>();
                 if (oldValue != null) {
@@ -249,7 +249,7 @@ public class RedissonMap<K, V> extends RedissonExpirable implements RMap<K, V> {
         long threadId = Thread.currentThread().getId();
         CompletionStage<V> f = lock.lockAsync(threadId)
                 .thenCompose(r -> {
-                RFuture<V> oldValueFuture = getAsync(key);
+                RFuture<V> oldValueFuture = getAsync(key, threadId);
                 return oldValueFuture.thenCompose(oldValue -> {
                     CompletableFuture<V> result = new CompletableFuture<>();
                     commandExecutor.getConnectionManager().getExecutor().execute(() -> {
@@ -341,7 +341,7 @@ public class RedissonMap<K, V> extends RedissonExpirable implements RMap<K, V> {
         long threadId = Thread.currentThread().getId();
         CompletionStage<V> f = lock.lockAsync(threadId)
                 .thenCompose(r -> {
-                    RFuture<V> oldValueFuture = getAsync(key);
+                    RFuture<V> oldValueFuture = getAsync(key, threadId);
                     return oldValueFuture.thenCompose(oldValue -> {
                         if (oldValue != null) {
                             return CompletableFuture.completedFuture(oldValue);
@@ -418,7 +418,7 @@ public class RedissonMap<K, V> extends RedissonExpirable implements RMap<K, V> {
         long threadId = Thread.currentThread().getId();
         CompletionStage<V> f = lock.lockAsync(threadId)
                 .thenCompose(r -> {
-                    RFuture<V> oldValueFuture = getAsync(key);
+                    RFuture<V> oldValueFuture = getAsync(key, threadId);
                     return oldValueFuture.thenCompose(oldValue -> {
                         if (oldValue == null) {
                             return CompletableFuture.completedFuture(null);
@@ -1161,7 +1161,12 @@ public class RedissonMap<K, V> extends RedissonExpirable implements RMap<K, V> {
     }
     
     @Override
-    public RFuture<V> getAsync(K key) {
+    public final RFuture<V> getAsync(K key) {
+        long threadId = Thread.currentThread().getId();
+        return getAsync(key, threadId);
+    }
+
+    protected RFuture<V> getAsync(K key, long threadId) {
         checkKey(key);
 
         RFuture<V> future = getOperationAsync(key);
@@ -1169,7 +1174,6 @@ public class RedissonMap<K, V> extends RedissonExpirable implements RMap<K, V> {
             return future;
         }
 
-        long threadId = Thread.currentThread().getId();
         CompletionStage<V> f = future.thenCompose(res -> {
             if (res == null) {
                 return loadValue(key, false, threadId);
@@ -1723,7 +1727,7 @@ public class RedissonMap<K, V> extends RedissonExpirable implements RMap<K, V> {
                             return;
                         }
                     } catch (Exception e) {
-                        log.error("Unable to load value by key " + key + " for map " + getRawName(), e);
+                        log.error("Unable to load value by key {} for map {}", key, getRawName(), e);
                         lock.unlockAsync(threadId)
                                 .whenComplete((r, ex) -> {
                                     if (ex != null) {
@@ -1765,7 +1769,7 @@ public class RedissonMap<K, V> extends RedissonExpirable implements RMap<K, V> {
                 return lock.unlockAsync(threadId);
             }
             if (ex != null) {
-                log.error("Unable to load value by key " + key + " for map " + getRawName(), ex);
+                log.error("Unable to load value by key {} for map {}", key, getRawName(), ex);
                 return lock.unlockAsync(threadId);
             }
 
@@ -1776,7 +1780,7 @@ public class RedissonMap<K, V> extends RedissonExpirable implements RMap<K, V> {
                 return (CompletionStage<V>) putOperationAsync(key, (V) value).handle((r, ex) -> {
                     RFuture<Void> f = lock.unlockAsync(threadId);
                     if (ex != null) {
-                        log.error("Unable to store value by key " + key + " for map " + getRawName(), ex);
+                        log.error("Unable to store value by key {} for map {}", key, getRawName(), ex);
                         return f;
                     }
                     return f.thenApply(res -> value);

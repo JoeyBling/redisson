@@ -69,7 +69,7 @@ public class RedisConnection implements RedisCommands {
         updateChannel(channel);
         lastUsageTime = System.nanoTime();
 
-        LOG.debug("Connection created " + redisClient);
+        LOG.debug("Connection created {}", redisClient);
     }
     
     protected RedisConnection(RedisClient redisClient) {
@@ -129,6 +129,11 @@ public class RedisConnection implements RedisCommands {
         return null;
     }
 
+    public void clearCurrentCommand() {
+        Queue<QueueCommandHolder> queue = channel.attr(CommandsQueue.COMMANDS_QUEUE).get();
+        queue.poll();
+    }
+
     public CommandData<?, ?> getCurrentCommand() {
         Queue<QueueCommandHolder> queue = channel.attr(CommandsQueue.COMMANDS_QUEUE).get();
         if (queue != null) {
@@ -140,9 +145,9 @@ public class RedisConnection implements RedisCommands {
             }
         }
 
-        QueueCommand command = channel.attr(CommandsQueuePubSub.CURRENT_COMMAND).get();
-        if (command instanceof CommandData) {
-            return (CommandData<?, ?>) command;
+        QueueCommandHolder holder = channel.attr(CommandsQueuePubSub.CURRENT_COMMAND).get();
+        if (holder != null && holder.getCommand() instanceof CommandData) {
+            return (CommandData<?, ?>) holder.getCommand();
         }
         return null;
     }

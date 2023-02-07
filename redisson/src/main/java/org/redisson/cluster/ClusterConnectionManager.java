@@ -19,7 +19,6 @@ import io.netty.resolver.AddressResolver;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.FutureListener;
 import io.netty.util.concurrent.ScheduledFuture;
-import org.redisson.api.NatMapper;
 import org.redisson.api.NodeType;
 import org.redisson.api.RFuture;
 import org.redisson.client.*;
@@ -27,10 +26,7 @@ import org.redisson.client.protocol.RedisCommands;
 import org.redisson.client.protocol.RedisStrictCommand;
 import org.redisson.cluster.ClusterNodeInfo.Flag;
 import org.redisson.cluster.ClusterPartition.Type;
-import org.redisson.config.ClusterServersConfig;
-import org.redisson.config.Config;
-import org.redisson.config.MasterSlaveServersConfig;
-import org.redisson.config.ReadMode;
+import org.redisson.config.*;
 import org.redisson.connection.*;
 import org.redisson.connection.ClientConnectionsEntry.FreezeReason;
 import org.redisson.misc.RedisURI;
@@ -63,25 +59,30 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
     
     private String configEndpointHostName;
     
-    private final NatMapper natMapper;
-
     private final AtomicReferenceArray<MasterSlaveEntry> slot2entry = new AtomicReferenceArray<>(MAX_SLOT);
 
     private final Map<RedisClient, MasterSlaveEntry> client2entry = new ConcurrentHashMap<>();
 
-    public ClusterConnectionManager(ClusterServersConfig cfg, Config config, UUID id) {
-        super(config, id);
+    private ClusterServersConfig cfg;
 
+    public ClusterConnectionManager(ClusterServersConfig cfg, Config config, UUID id) {
+        super(cfg, config, id);
+    }
+
+    @Override
+    protected MasterSlaveServersConfig create(BaseMasterSlaveServersConfig<?> cfg) {
+        this.cfg = (ClusterServersConfig) cfg;
+        return super.create(cfg);
+    }
+
+    @Override
+    public void connect() {
         if (cfg.getNodeAddresses().isEmpty()) {
             throw new IllegalArgumentException("At least one cluster node should be defined!");
         }
 
-        this.natMapper = cfg.getNatMapper();
-        this.config = create(cfg);
-        initTimer(this.config);
-        
         Throwable lastException = null;
-        List<String> failedMasters = new ArrayList<String>();
+        List<String> failedMasters = new ArrayList<>();
         for (String address : cfg.getNodeAddresses()) {
             RedisURI addr = new RedisURI(address);
             CompletionStage<RedisConnection> connectionFuture = connectToNode(cfg, addr, addr.getHost());
@@ -91,14 +92,14 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
                 if (cfg.getNodeAddresses().size() == 1 && !addr.isIP()) {
                     configEndpointHostName = addr.getHost();
                 }
-                
+
                 clusterNodesCommand = RedisCommands.CLUSTER_NODES;
                 if (addr.isSsl()) {
                     clusterNodesCommand = RedisCommands.CLUSTER_NODES_SSL;
                 }
-                
+
                 List<ClusterNodeInfo> nodes = connection.sync(clusterNodesCommand);
-                
+
                 StringBuilder nodesValue = new StringBuilder();
                 for (ClusterNodeInfo clusterNodeInfo : nodes) {
                     nodesValue.append(clusterNodeInfo.getNodeInfo()).append("\n");
@@ -106,9 +107,16 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
                 log.info("Redis cluster nodes configuration got from {}:\n{}", connection.getRedisClient().getAddr(), nodesValue);
 
                 lastClusterNode = addr;
-                
+
                 CompletableFuture<Collection<ClusterPartition>> partitionsFuture = parsePartitions(nodes);
-                Collection<ClusterPartition> partitions = partitionsFuture.join();
+                Collection<ClusterPartition> partitions;
+                try {
+                    partitions = partitionsFuture.join();
+                } catch (CompletionException e) {
+                    lastException = e.getCause();
+                    break;
+                }
+
                 List<CompletableFuture<Void>> masterFutures = new ArrayList<>();
                 for (ClusterPartition partition : partitions) {
                     if (partition.isMasterFail()) {
@@ -156,7 +164,7 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
                 throw new RedisConnectionException("Not all slots covered! Only " + lastPartitions.size() + " slots are available. Set checkSlotsCoverage = false to avoid this check. Failed masters according to cluster status: " + failedMasters, lastException);
             }
         }
-        
+
         scheduleClusterChangeCheck(cfg);
     }
 
@@ -167,7 +175,7 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
 
     protected MasterSlaveEntry getEntry(RedisURI addr) {
         for (MasterSlaveEntry entry : client2entry.values()) {
-            if (RedisURI.compare(entry.getClient().getAddr(), addr)) {
+            if (addr.equals(entry.getClient().getAddr())) {
                 return entry;
             }
             if (entry.hasSlave(addr)) {
@@ -237,7 +245,6 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
 
     private void shutdownEntry(MasterSlaveEntry entry) {
         if (entry != null && entry.decReference() == 0) {
-            client2entry.remove(entry.getClient());
             entry.getAllEntries().forEach(e -> {
                 RedisURI uri = new RedisURI(e.getClient().getConfig().getAddress().getScheme(),
                         e.getClient().getAddr().getAddress().getHostAddress(),
@@ -252,6 +259,8 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
                                         entry.getClient().getAddr().getAddress().getHostAddress(),
                                         entry.getClient().getAddr().getPort());
             disconnectNode(uri);
+
+            client2entry.remove(entry.getClient());
 
             String slaves = entry.getAllEntries().stream()
                     .filter(e -> !e.getClient().getAddr().equals(entry.getClient().getAddr()))
@@ -308,7 +317,7 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
             CompletableFuture<RedisClient> f = entry.setupMasterEntry(new RedisURI(config.getMasterAddress()), configEndpointHostName);
             f.whenComplete((masterClient, ex3) -> {
                 if (ex3 != null) {
-                    log.error("Can't add master: " + partition.getMasterAddress() + " for slot ranges: " + partition.getSlotRanges(), ex3);
+                    log.error("Can't add master: {} for slot ranges: {}", partition.getMasterAddress(), partition.getSlotRanges(), ex3);
                     result.completeExceptionally(ex3);
                     return;
                 }
@@ -322,8 +331,7 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
                     CompletableFuture<Void> fs = entry.initSlaveBalancer(partition.getFailedSlaveAddresses(), configEndpointHostName);
                     fs.whenComplete((r, ex) -> {
                         if (ex != null) {
-                            log.error("unable to add slave for: " + partition.getMasterAddress()
-                                    + " slot ranges: " + partition.getSlotRanges(), ex);
+                            log.error("unable to add slave for: {} slot ranges: {}", partition.getMasterAddress(), partition.getSlotRanges(), ex);
                             result.completeExceptionally(ex);
                             return;
                         }
@@ -442,7 +450,7 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
         RFuture<List<ClusterNodeInfo>> future = connection.async(clusterNodesCommand);
         future.whenComplete((nodes, e) -> {
                 if (e != null) {
-                    log.error("Unable to execute " + clusterNodesCommand, e);
+                    log.error("Unable to execute {}", clusterNodesCommand, e);
                     lastException.set(e);
                     getShutdownLatch().release();
                     checkClusterState(cfg, iterator, lastException);
@@ -458,8 +466,8 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
 
                 lastClusterNode = uri;
 
-                StringBuilder nodesValue = new StringBuilder();
                 if (log.isDebugEnabled()) {
+                    StringBuilder nodesValue = new StringBuilder();
                     for (ClusterNodeInfo clusterNodeInfo : nodes) {
                         nodesValue.append(clusterNodeInfo.getNodeInfo()).append("\n");
                     }
@@ -468,6 +476,18 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
 
                 CompletableFuture<Collection<ClusterPartition>> newPartitionsFuture = parsePartitions(nodes);
                 newPartitionsFuture
+                        .whenComplete((r, ex) -> {
+                            if (ex != null) {
+                                StringBuilder nodesValue = new StringBuilder();
+                                for (ClusterNodeInfo clusterNodeInfo : nodes) {
+                                    nodesValue.append(clusterNodeInfo.getNodeInfo()).append("\n");
+                                }
+                                log.error("Unable to parse cluster nodes state got from: {}:\n{}", connection.getRedisClient().getAddr(), nodesValue, ex);
+                                lastException.set(ex);
+                                getShutdownLatch().release();
+                                checkClusterState(cfg, iterator, lastException);
+                            }
+                        })
                         .thenCompose(newPartitions -> checkMasterNodesChange(cfg, newPartitions))
                         .thenCompose(r -> newPartitionsFuture)
                         .thenCompose(newPartitions -> checkSlaveNodesChange(newPartitions))
@@ -583,7 +603,7 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
             CompletableFuture<Void> slaveUpFuture = entry.addSlave(uri, false, NodeType.SLAVE, configEndpointHostName);
             slaveUpFuture = slaveUpFuture.whenComplete((res, ex) -> {
                 if (ex != null) {
-                    log.error("Can't add slave: " + uri, ex);
+                    log.error("Can't add slave: {}", uri, ex);
                 }
             }).thenCompose(res -> {
                 currentPart.addSlaveAddress(uri);
@@ -799,7 +819,7 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
 
     @Override
     public RedisURI applyNatMap(RedisURI address) {
-        return natMapper.map(address);
+        return cfg.getNatMapper().map(address);
     }
     
     private CompletableFuture<Collection<ClusterPartition>> parsePartitions(List<ClusterNodeInfo> nodes) {

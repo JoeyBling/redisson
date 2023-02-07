@@ -63,12 +63,14 @@ public class ReplicatedConnectionManager extends MasterSlaveConnectionManager {
         slave
     }
 
+    private ReplicatedServersConfig cfg;
+
     public ReplicatedConnectionManager(ReplicatedServersConfig cfg, Config config, UUID id) {
-        super(config, id);
+        super(cfg, config, id);
+    }
 
-        this.config = create(cfg);
-        initTimer(this.config);
-
+    @Override
+    public void connect() {
         for (String address : cfg.getNodeAddresses()) {
             RedisURI addr = new RedisURI(address);
             CompletionStage<RedisConnection> connectionFuture = connectToNode(cfg, addr, addr.getHost());
@@ -98,10 +100,10 @@ public class ReplicatedConnectionManager extends MasterSlaveConnectionManager {
             throw new RedisConnectionException("Can't connect to servers!");
         }
         if (this.config.getReadMode() != ReadMode.MASTER && this.config.getSlaveAddresses().isEmpty()) {
-            log.warn("ReadMode = " + this.config.getReadMode() + ", but slave nodes are not found! Please specify all nodes in replicated mode.");
+            log.warn("ReadMode = {}, but slave nodes are not found! Please specify all nodes in replicated mode.", this.config.getReadMode());
         }
 
-        initSingleEntry();
+        super.connect();
 
         scheduleMasterChangeCheck(cfg);
     }
@@ -113,6 +115,7 @@ public class ReplicatedConnectionManager extends MasterSlaveConnectionManager {
 
     @Override
     protected MasterSlaveServersConfig create(BaseMasterSlaveServersConfig<?> cfg) {
+        this.cfg = (ReplicatedServersConfig) cfg;
         MasterSlaveServersConfig res = super.create(cfg);
         res.setDatabase(((ReplicatedServersConfig) cfg).getDatabase());
         return res;
@@ -170,10 +173,9 @@ public class ReplicatedConnectionManager extends MasterSlaveConnectionManager {
                     }
 
                     RedisConnection connection = connectionFuture.toCompletableFuture().join();
-                    if (!RedisURI.compare(connection.getRedisClient().getAddr(), ip)) {
+                    if (!ip.equals(connection.getRedisClient().getAddr())) {
                         disconnectNode(uri);
-                        log.info("Hostname: " + uri + " has changed IP from: "
-                                    + connection.getRedisClient().getAddr() + " to " + ip);
+                        log.info("Hostname: {} has changed IP from: {} to {}", uri, connection.getRedisClient().getAddr(), ip);
                         return CompletableFuture.<Map<String, String>>completedFuture(null);
                     }
 
@@ -194,7 +196,7 @@ public class ReplicatedConnectionManager extends MasterSlaveConnectionManager {
                         } else if (currentMaster.compareAndSet(master, addr)) {
                             CompletableFuture<RedisClient> changeFuture = changeMaster(singleSlotRange.getStartSlot(), uri);
                             return changeFuture.exceptionally(e -> {
-                                    log.error("Unable to change master to " + addr, e);
+                                    log.error("Unable to change master to {}", addr, e);
                                     currentMaster.compareAndSet(addr, master);
                                     return null;
                             });

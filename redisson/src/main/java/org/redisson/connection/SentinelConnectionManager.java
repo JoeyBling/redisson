@@ -58,25 +58,14 @@ public class SentinelConnectionManager extends MasterSlaveConnectionManager {
     private final AddressResolver<InetSocketAddress> sentinelResolver;
     private final Set<RedisURI> disconnectedSentinels = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
-    private final RedisStrictCommand<RedisURI> masterHostCommand;
+    private RedisStrictCommand<RedisURI> masterHostCommand;
 
     private boolean usePassword = false;
     private String scheme;
-    private final SentinelServersConfig cfg;
+    private SentinelServersConfig cfg;
 
     public SentinelConnectionManager(SentinelServersConfig cfg, Config config, UUID id) {
-        super(config, id);
-        
-        if (cfg.getMasterName() == null) {
-            throw new IllegalArgumentException("masterName parameter is not defined!");
-        }
-        if (cfg.getSentinelAddresses().isEmpty()) {
-            throw new IllegalArgumentException("At least one sentinel node should be defined!");
-        }
-
-        this.config = create(cfg);
-        this.cfg = cfg;
-        initTimer(this.config);
+        super(cfg, config, id);
 
         this.sentinelResolver = resolverGroup.getResolver(getGroup().next());
 
@@ -88,7 +77,10 @@ public class SentinelConnectionManager extends MasterSlaveConnectionManager {
                 sentinelHosts.add(addr);
             }
         }
+    }
 
+    @Override
+    public void connect() {
         checkAuth(cfg);
 
         if ("redis".equals(scheme)) {
@@ -203,11 +195,11 @@ public class SentinelConnectionManager extends MasterSlaveConnectionManager {
             throw new RedisConnectionException("Can't connect to servers!", lastException);
         }
         if (this.config.getReadMode() != ReadMode.MASTER && this.config.getSlaveAddresses().isEmpty()) {
-            log.warn("ReadMode = " + this.config.getReadMode() + ", but slave nodes are not found!");
+            log.warn("ReadMode = {}, but slave nodes are not found!", this.config.getReadMode());
         }
-        
-        initSingleEntry();
-        
+
+        super.connect();
+
         scheduleChangeCheck(cfg, null);
     }
 
@@ -291,7 +283,7 @@ public class SentinelConnectionManager extends MasterSlaveConnectionManager {
             Future<List<InetSocketAddress>> allNodes = sentinelResolver.resolveAll(InetSocketAddress.createUnresolved(host.getHost(), host.getPort()));
             allNodes.addListener((FutureListener<List<InetSocketAddress>>) future -> {
                 if (!future.isSuccess()) {
-                    log.error("Unable to resolve " + host.getHost(), future.cause());
+                    log.error("Unable to resolve {}", host.getHost(), future.cause());
                     return;
                 }
 
@@ -369,7 +361,7 @@ public class SentinelConnectionManager extends MasterSlaveConnectionManager {
         CompletableFuture<Void> future = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
         future.whenComplete((r, e) -> {
             if (e != null) {
-                log.error("Can't execute SENTINEL commands on " + connection.getRedisClient().getAddr(), e);
+                log.error("Can't execute SENTINEL commands on {}", connection.getRedisClient().getAddr(), e);
             }
 
             getShutdownLatch().release();
@@ -460,7 +452,7 @@ public class SentinelConnectionManager extends MasterSlaveConnectionManager {
                 futures.add(resolvedFuture
                         .whenComplete((r, exc) -> {
                             if (exc != null) {
-                                log.error("Unable to resolve addresses " + host + " and/or " + masterHost, exc);
+                                log.error("Unable to resolve addresses {} and/or {}", host, masterHost, exc);
                             }
                         })
                         .thenCompose(res -> {
@@ -477,7 +469,7 @@ public class SentinelConnectionManager extends MasterSlaveConnectionManager {
                             currentSlaves.add(slaveAddr);
                             return addSlave(slaveAddr).whenComplete((r, e) -> {
                                 if (e != null) {
-                                    log.error("Unable to add slave " + slaveAddr, e);
+                                    log.error("Unable to add slave {}", slaveAddr, e);
                                 }
                             });
                 }));
@@ -642,8 +634,16 @@ public class SentinelConnectionManager extends MasterSlaveConnectionManager {
 
     @Override
     protected MasterSlaveServersConfig create(BaseMasterSlaveServersConfig<?> cfg) {
+        this.cfg = (SentinelServersConfig) cfg;
+        if (this.cfg.getMasterName() == null) {
+            throw new IllegalArgumentException("masterName parameter is not defined!");
+        }
+        if (this.cfg.getSentinelAddresses().isEmpty()) {
+            throw new IllegalArgumentException("At least one sentinel node should be defined!");
+        }
+
         MasterSlaveServersConfig res = super.create(cfg);
-        res.setDatabase(((SentinelServersConfig) cfg).getDatabase());
+        res.setDatabase(this.cfg.getDatabase());
         return res;
     }
     

@@ -215,6 +215,7 @@ public interface RedisCommands {
     RedisCommand<Set<Object>> SUNION = new RedisCommand<Set<Object>>("SUNION", new ObjectSetReplayDecoder<Object>());
     RedisCommand<Set<Object>> SDIFF = new RedisCommand<Set<Object>>("SDIFF", new ObjectSetReplayDecoder<Object>());
     RedisCommand<Set<Object>> SINTER = new RedisCommand<Set<Object>>("SINTER", new ObjectSetReplayDecoder<Object>());
+    RedisCommand<List<Long>> SMISMEMBER = new RedisCommand<>("SMISMEMBER", new ObjectListReplayDecoder<Long>());
 
     RedisStrictCommand<Long> LPOS = new RedisStrictCommand<>("LPOS");
     RedisCommand<Void> LSET = new RedisCommand<Void>("LSET", new VoidReplayConvertor());
@@ -258,6 +259,9 @@ public interface RedisCommands {
                     new ObjectDecoder(StringCodec.INSTANCE.getValueDecoder()) {
                         @Override
                         public Object decode(List parts, State state) {
+                            if (parts.isEmpty()) {
+                                return null;
+                            }
                             return Collections.singletonMap(parts.get(0), parts.get(1));
                         }
                     },
@@ -341,13 +345,12 @@ public interface RedisCommands {
                         public Object decode(List parts, State state) {
                             String name = (String) parts.get(1);
                             String engine = (String) parts.get(3);
-                            String description = (String) parts.get(5);
                             String code = null;
-                            if (parts.size() > 8) {
-                                code = (String) parts.get(9);
+                            if (parts.size() > 6) {
+                                code = (String) parts.get(6);
                             }
-                            List<FunctionLibrary.Function> functions = (List<FunctionLibrary.Function>) parts.get(7);
-                            return new FunctionLibrary(name, engine, description, code, functions);
+                            List<FunctionLibrary.Function> functions = (List<FunctionLibrary.Function>) parts.get(5);
+                            return new FunctionLibrary(name, engine, code, functions);
                         }
                     },
                     new CodecDecoder(),
@@ -397,6 +400,8 @@ public interface RedisCommands {
     RedisCommand<List<Object>> EVAL_LIST = new RedisCommand<List<Object>>("EVAL", new ObjectListReplayDecoder<Object>());
     RedisCommand<List<Object>> EVAL_LIST_REVERSE = new RedisCommand<List<Object>>("EVAL", new ObjectListReplayDecoder<>(true));
     RedisCommand<List<Integer>> EVAL_INT_LIST = new RedisCommand("EVAL", new ObjectListReplayDecoder<Integer>(), new IntegerReplayConvertor());
+
+    RedisCommand<List<Long>> EVAL_LONG_LIST = new RedisCommand("EVAL", new ObjectListReplayDecoder<Long>());
     RedisCommand<ListScanResult<Object>> EVAL_LIST_SCAN = new RedisCommand<ListScanResult<Object>>("EVAL", new ListMultiDecoder2(new ListScanResultReplayDecoder(), new ObjectListReplayDecoder<Object>()));
     RedisCommand<Set<Object>> EVAL_SET = new RedisCommand<Set<Object>>("EVAL", new ObjectSetReplayDecoder<Object>());
     RedisCommand<Object> EVAL_OBJECT = new RedisCommand<Object>("EVAL");

@@ -125,11 +125,26 @@ public class RedisExecutor<V, R> {
 
         CompletableFuture<R> attemptPromise = new CompletableFuture<>();
         mainPromiseListener = (r, e) -> {
-            if (mainPromise.isCancelled() && connectionFuture.cancel(false)) {
+            if (!mainPromise.isCancelled()) {
+                return;
+            }
+
+            if (connectionFuture.cancel(false)) {
                 log.debug("Connection obtaining canceled for {}", command);
                 timeout.ifPresent(Timeout::cancel);
                 if (attemptPromise.cancel(false)) {
                     free();
+                }
+            } else {
+                if (command.isBlockingCommand()) {
+                    RedisConnection c = connectionFuture.getNow(null);
+                    if (writeFuture.cancel(false)) {
+                        attemptPromise.cancel(false);
+                    } else {
+                        c.forceFastReconnectAsync().whenComplete((res, ex) -> {
+                            attemptPromise.cancel(true);
+                        });
+                    }
                 }
             }
         };
@@ -187,7 +202,7 @@ public class RedisExecutor<V, R> {
         TimerTask task = timeout -> {
             if (connectionFuture.cancel(false)) {
                 exception = new RedisTimeoutException("Unable to acquire connection! " + this.connectionFuture +
-                        "Increase connection pool size. "
+                        "Increase connection pool size or timeout. "
                         + "Node source: " + source
                         + ", command: " + LogHelper.toString(command, params)
                         + " after " + attempt + " retry attempts");
@@ -337,23 +352,23 @@ public class RedisExecutor<V, R> {
 
         long timeoutTime = responseTimeout;
         if (command != null && command.isBlockingCommand()) {
-            Long popTimeout = null;
+            long popTimeout = 0;
             if (RedisCommands.BLOCKING_COMMANDS.contains(command)) {
                 for (int i = 0; i < params.length-1; i++) {
                     if ("BLOCK".equals(params[i])) {
-                        popTimeout = Long.valueOf(params[i+1].toString()) / 1000;
+                        popTimeout = Long.valueOf(params[i+1].toString());
                         break;
                     }
                 }
             } else {
-                popTimeout = Long.valueOf(params[params.length - 1].toString());
+                popTimeout = Long.valueOf(params[params.length - 1].toString()) * 1000;
             }
 
             handleBlockingOperations(attemptPromise, connection, popTimeout);
             if (popTimeout == 0) {
                 return;
             }
-            timeoutTime += popTimeout * 1000;
+            timeoutTime += popTimeout;
             // add 1 second due to issue https://github.com/antirez/redis/issues/874
             timeoutTime += 1000;
         }
@@ -396,7 +411,7 @@ public class RedisExecutor<V, R> {
                     && (command == null || (!command.isBlockingCommand() && !command.isNoRetry()));
     }
 
-    private void handleBlockingOperations(CompletableFuture<R> attemptPromise, RedisConnection connection, Long popTimeout) {
+    private void handleBlockingOperations(CompletableFuture<R> attemptPromise, RedisConnection connection, long popTimeout) {
         FutureListener<Void> listener = f -> {
             mainPromise.completeExceptionally(new RedissonShutdownException("Redisson is shutdown"));
         };
@@ -408,7 +423,7 @@ public class RedisExecutor<V, R> {
                 if (attemptPromise.complete(null)) {
                     connection.forceFastReconnectAsync();
                 }
-            }, popTimeout + 3, TimeUnit.SECONDS);
+            }, popTimeout + 3000, TimeUnit.MILLISECONDS);
         } else {
             scheduledFuture = null;
         }
@@ -508,7 +523,8 @@ public class RedisExecutor<V, R> {
             if (cause instanceof RedisLoadingException
                     || cause instanceof RedisTryAgainException
                         || cause instanceof RedisClusterDownException
-                            || cause instanceof RedisBusyException) {
+                            || cause instanceof RedisBusyException
+                                || cause instanceof RedisWaitException) {
                 if (attempt < attempts) {
                     onException();
                     connectionManager.newTimeout(timeout -> {

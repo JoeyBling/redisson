@@ -1,20 +1,64 @@
 package org.redisson;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import org.awaitility.Awaitility;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.redisson.api.NameMapper;
+import org.redisson.api.RFuture;
+import org.redisson.api.RPermitExpirableSemaphore;
+import org.redisson.api.RedissonClient;
+import org.redisson.client.RedisException;
+import org.redisson.config.Config;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.awaitility.Awaitility;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-import org.redisson.api.RFuture;
-import org.redisson.api.RPermitExpirableSemaphore;
-import org.redisson.client.RedisException;
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class RedissonPermitExpirableSemaphoreTest extends BaseConcurrentTest {
+
+    @Test
+    public void testGetInClusterNameMapper() throws RedisRunner.FailedToStartRedisException, IOException, InterruptedException {
+        RedisRunner master1 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner master2 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner master3 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner slave1 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner slave2 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner slave3 = new RedisRunner().randomPort().randomDir().nosave();
+
+        ClusterRunner clusterRunner = new ClusterRunner()
+                .addNode(master1, slave1)
+                .addNode(master2, slave2)
+                .addNode(master3, slave3);
+        ClusterRunner.ClusterProcesses process = clusterRunner.run();
+
+        Config config = new Config();
+        config.useClusterServers()
+                .setNameMapper(new NameMapper() {
+                    @Override
+                    public String map(String name) {
+                        return "test::" + name;
+                    }
+
+                    @Override
+                    public String unmap(String name) {
+                        return name.replace("test::", "");
+                    }
+                })
+                .addNodeAddress(process.getNodes().stream().findAny().get().getRedisServerAddressAndPort());
+        RedissonClient redisson = Redisson.create(config);
+
+        RPermitExpirableSemaphore s = redisson.getPermitExpirableSemaphore("semaphore");
+        s.trySetPermits(1);
+        String v = s.acquire();
+        s.release(v);
+
+        redisson.shutdown();
+        process.shutdown();
+    }
 
     @Test
     public void testUpdateLeaseTime() throws InterruptedException {
@@ -60,6 +104,45 @@ public class RedissonPermitExpirableSemaphoreTest extends BaseConcurrentTest {
     }
 
     @Test
+    public void testAcquiredPermits() throws InterruptedException {
+        RPermitExpirableSemaphore semaphore = redisson.getPermitExpirableSemaphore("test-semaphore");
+        assertThat(semaphore.trySetPermits(2)).isTrue();
+        Assertions.assertEquals(0, semaphore.acquiredPermits());
+        String acquire1 = semaphore.tryAcquire(200, 1000, TimeUnit.MILLISECONDS);
+        assertThat(acquire1).isNotNull();
+        Assertions.assertEquals(1, semaphore.acquiredPermits());
+        String acquire2 = semaphore.tryAcquire(200, 1000, TimeUnit.MILLISECONDS);
+        assertThat(acquire2).isNotNull();
+        String acquire3 = semaphore.tryAcquire(200, 1000, TimeUnit.MILLISECONDS);
+        assertThat(acquire3).isNull();
+        Assertions.assertEquals(2, semaphore.acquiredPermits());
+        Thread.sleep(1100);
+        String acquire4 = semaphore.tryAcquire(200, 1000, TimeUnit.MILLISECONDS);
+        assertThat(acquire4).isNotNull();
+        Thread.sleep(1100);
+        Assertions.assertEquals(0, semaphore.acquiredPermits());
+    }
+
+    @Test
+    public void testGetPermits() throws InterruptedException {
+        RPermitExpirableSemaphore semaphore = redisson.getPermitExpirableSemaphore("test-semaphore");
+        assertThat(semaphore.trySetPermits(2)).isTrue();
+        Assertions.assertEquals(2, semaphore.getPermits());
+        String acquire1 = semaphore.tryAcquire(200, 1000, TimeUnit.MILLISECONDS);
+        assertThat(acquire1).isNotNull();
+        String acquire2 = semaphore.tryAcquire(200, 1000, TimeUnit.MILLISECONDS);
+        assertThat(acquire2).isNotNull();
+        String acquire3 = semaphore.tryAcquire(200, 1000, TimeUnit.MILLISECONDS);
+        assertThat(acquire3).isNull();
+        Assertions.assertEquals(2, semaphore.getPermits());
+        Thread.sleep(1100);
+        String acquire4 = semaphore.tryAcquire(200, 1000, TimeUnit.MILLISECONDS);
+        assertThat(acquire4).isNotNull();
+        Thread.sleep(1100);
+        Assertions.assertEquals(2, semaphore.getPermits());
+    }
+
+    @Test
     public void testExpiration() throws InterruptedException {
         RPermitExpirableSemaphore semaphore = redisson.getPermitExpirableSemaphore("some-key");
         semaphore.trySetPermits(1);
@@ -95,7 +178,7 @@ public class RedissonPermitExpirableSemaphoreTest extends BaseConcurrentTest {
 
         t.start();
         t.join();
-        
+
         assertThat(s.tryRelease(permitId)).isFalse();
         assertThat(bool.get()).isTrue();
     }
@@ -126,7 +209,7 @@ public class RedissonPermitExpirableSemaphoreTest extends BaseConcurrentTest {
 
         t.start();
         t.join();
-        
+
         assertThat(s.tryRelease(permitId)).isFalse();
         assertThat(bool.get()).isTrue();
     }
@@ -140,7 +223,65 @@ public class RedissonPermitExpirableSemaphoreTest extends BaseConcurrentTest {
         assertThat(s.trySetPermits(15)).isFalse();
         assertThat(s.availablePermits()).isEqualTo(10);
     }
-    
+
+    @Test
+    public void testSetPermits() throws InterruptedException {
+        RPermitExpirableSemaphore s = redisson.getPermitExpirableSemaphore("test");
+        s.setPermits(10);
+        assertThat(s.getPermits()).isEqualTo(10);
+        assertThat(s.availablePermits()).isEqualTo(10);
+        assertThat(s.acquiredPermits()).isEqualTo(0);
+
+        // attempts to set available permits fail
+        assertThat(s.trySetPermits(15)).isFalse();
+        assertThat(s.getPermits()).isEqualTo(10);
+        assertThat(s.availablePermits()).isEqualTo(10);
+        assertThat(s.acquiredPermits()).isEqualTo(0);
+
+        // attempts to set max permits succeeds
+        s.setPermits(15);
+        assertThat(s.getPermits()).isEqualTo(15);
+        assertThat(s.availablePermits()).isEqualTo(15);
+        assertThat(s.acquiredPermits()).isEqualTo(0);
+
+        // setting to existing value succeeds
+        s.setPermits(15);
+        assertThat(s.getPermits()).isEqualTo(15);
+        assertThat(s.availablePermits()).isEqualTo(15);
+        assertThat(s.acquiredPermits()).isEqualTo(0);
+
+        // decreasing max permits succeeds
+        s.setPermits(5);
+        assertThat(s.getPermits()).isEqualTo(5);
+        assertThat(s.availablePermits()).isEqualTo(5);
+        assertThat(s.acquiredPermits()).isEqualTo(0);
+
+        // changing the max after acquiring permits succeeds
+        String acquire1 = s.tryAcquire(200, 1000, TimeUnit.MILLISECONDS);
+        assertThat(acquire1).isNotNull();
+        String acquire2 = s.tryAcquire(200, 1000, TimeUnit.MILLISECONDS);
+        assertThat(acquire2).isNotNull();
+        String acquire3 = s.tryAcquire(200, 1000, TimeUnit.MILLISECONDS);
+        assertThat(acquire3).isNotNull();
+
+        assertThat(s.getPermits()).isEqualTo(5);
+        assertThat(s.availablePermits()).isEqualTo(2);
+        assertThat(s.acquiredPermits()).isEqualTo(3);
+
+        // decreasing the max to the number of claimed permits is allowed
+        s.setPermits(3);
+        assertThat(s.getPermits()).isEqualTo(3);
+        assertThat(s.availablePermits()).isEqualTo(0);
+        assertThat(s.acquiredPermits()).isEqualTo(3);
+
+        // decreasing the max to below the number of claimed permits is allowed
+        // and results in a negative number of available permits
+        s.setPermits(2);
+        assertThat(s.getPermits()).isEqualTo(2);
+        assertThat(s.availablePermits()).isEqualTo(-1);
+        assertThat(s.acquiredPermits()).isEqualTo(3);
+    }
+
     @Test
     public void testAddPermits() throws InterruptedException {
         RPermitExpirableSemaphore s = redisson.getPermitExpirableSemaphore("test");
@@ -150,6 +291,8 @@ public class RedissonPermitExpirableSemaphoreTest extends BaseConcurrentTest {
         assertThat(s.availablePermits()).isEqualTo(15);
         s.addPermits(-10);
         assertThat(s.availablePermits()).isEqualTo(5);
+        s.addPermits(-10);
+        assertThat(s.availablePermits()).isEqualTo(-5);
     }
     
     @Test
